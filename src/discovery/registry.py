@@ -155,6 +155,20 @@ class CompanyRegistry:
 
         return inserted
 
+    def ensure_seeded(self, yaml_path: Path | str = DEFAULT_YAML_PATH) -> int:
+        """
+        First-run bootstrap: if the registry has never held any company (fresh clone or
+        new DATABASE_PATH), import the curated boards from companies.yaml so Tier 1 has
+        something to poll. Returns the number imported (0 if the registry already had rows,
+        including ones pruned to inactive, which must stay pruned).
+        """
+        if self.get_stats()["total_companies"] > 0:
+            return 0
+        imported = self.sync_from_yaml(yaml_path)
+        if imported:
+            logger.info("Registry was empty: imported %d companies from %s.", imported, yaml_path)
+        return imported
+
     def get_slugs_by_platform(
         self,
         platform: str | None = None,

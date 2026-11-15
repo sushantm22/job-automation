@@ -19,8 +19,142 @@ ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config.yaml"
 ENV_PATH = ROOT / ".env"
 ENV_EXAMPLE_PATH = ROOT / ".env.example"
+PROFILE_PATH = ROOT / "data" / "profile.json"
+PROFILE_EXAMPLE_PATH = ROOT / "data" / "profile.example.json"
+ANSWERS_PATH = ROOT / "data" / "candidate_answers_reference.json"
+ANSWERS_EXAMPLE_PATH = ROOT / "data" / "candidate_answers.example.json"
+
+NOTION_CONNECT_TIP = (
+    "\nTip: Notion only lets an integration see pages you explicitly share with it:\n"
+    "  1. Open the parent page in Notion\n"
+    "  2. Click '...' (top-right) -> 'Connections' -> select your integration\n"
+    "  3. Re-run: python -m src.cli init-notion-db --parent-page-id <page URL or ID>"
+)
+
+# (path in profile.json, prompt label, kind, required-for-applications)
+PROFILE_PROMPTS: list[tuple[tuple[str, ...], str, str, bool]] = [
+    (("personal", "first_name"), "First name", "str", True),
+    (("personal", "last_name"), "Last name", "str", True),
+    (("personal", "email"), "Email", "str", True),
+    (("personal", "phone"), "Phone (with country code, e.g. +91 ...)", "str", True),
+    (("personal", "location", "city"), "City", "str", True),
+    (("personal", "location", "country"), "Country", "str", True),
+    (("personal", "linkedin"), "LinkedIn URL", "str", True),
+    (("personal", "github"), "GitHub URL (optional)", "str", False),
+    (("preferences", "notice_period_days"), "Notice period in days", "int", False),
+    (("files", "resume"), "Resume file path (relative to the project folder)", "str", True),
+]
 
 console = Console()
+
+
+def ensure_file_from_example(path: Path, example_path: Path) -> bool:
+    """Creates a gitignored personal file from its tracked example if missing. Returns True if created."""
+    if path.exists() or not example_path.exists():
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(example_path.read_text(encoding="utf-8"), encoding="utf-8")
+    return True
+
+
+def _get_nested(data: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if not isinstance(data, dict):
+            return None
+        data = data.get(key)
+    return data
+
+
+def _set_nested(data: dict[str, Any], keys: tuple[str, ...], value: Any) -> None:
+    for key in keys[:-1]:
+        data = data.setdefault(key, {})
+    data[keys[-1]] = value
+
+
+def load_profile(path: Path = PROFILE_PATH) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_profile(profile: dict[str, Any], path: Path = PROFILE_PATH) -> None:
+    path.write_text(json.dumps(profile, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def missing_profile_fields(profile: dict[str, Any], root: Path = ROOT) -> list[str]:
+    """Labels of required profile fields that are empty, plus the resume if its file doesn't exist."""
+    missing: list[str] = []
+    for keys, label, _kind, required in PROFILE_PROMPTS:
+        if not required:
+            continue
+        value = _get_nested(profile, keys)
+        if value in (None, ""):
+            missing.append(label)
+        elif keys == ("files", "resume") and not (root / str(value)).exists():
+            missing.append(f"{label} (file not found: {value})")
+    return missing
+
+
+def provision_notion_table(
+    api_token: str,
+    parent_page_id: str,
+    title: str = "Job Opportunities",
+) -> tuple[dict[str, str], str]:
+    """Creates the jobs table under the parent page. Returns (.env values to save, table URL)."""
+    from .integrations.notion_client import clean_notion_id, create_notion_job_database
+
+    res = create_notion_job_database(parent_page_id=parent_page_id, title=title, api_token=api_token)
+    env_values = {
+        "NOTION_DATABASE_ID": clean_notion_id(res["id"]),
+        "NOTION_PARENT_PAGE_ID": clean_notion_id(parent_page_id),
+    }
+    return env_values, res.get("url") or ""
+
+
+def _ask(label: str, current: Any = "") -> str:
+    """Prompt that shows the current value as the default and returns '' when left empty."""
+    current_str = "" if current in (None, "") else str(current)
+    answer = Prompt.ask(label, default=current_str) if current_str else Prompt.ask(label)
+    return (answer or "").strip()
+
+
+def run_profile_step() -> None:
+    """Wizard step: create data/profile.json from the example and fill the basics."""
+    if ensure_file_from_example(PROFILE_PATH, PROFILE_EXAMPLE_PATH):
+        console.print("[green]✔ Created data/profile.json from the example (gitignored — stays on your machine).[/green]")
+    profile = load_profile()
+    missing = missing_profile_fields(profile)
+    if missing:
+        console.print(f"[yellow]Missing profile fields:[/yellow] {', '.join(missing)}")
+    else:
+        console.print("[green]✔ Your basic profile is complete.[/green]")
+
+    if Confirm.ask("\nWould you like to fill in your basic profile now?", default=bool(missing)):
+        for keys, label, kind, _required in PROFILE_PROMPTS:
+            answer = _ask(f"   {label}", _get_nested(profile, keys))
+            if kind == "int":
+                try:
+                    _set_nested(profile, keys, int(answer or 0))
+                except ValueError:
+                    console.print(f"   [yellow]'{answer}' is not a number; keeping the previous value.[/yellow]")
+            else:
+                _set_nested(profile, keys, answer)
+        save_profile(profile)
+        console.print("[green]✔ Saved data/profile.json.[/green]")
+        still_missing = missing_profile_fields(profile)
+        if still_missing:
+            console.print(f"[yellow]Still missing:[/yellow] {', '.join(still_missing)}")
+
+    if ensure_file_from_example(ANSWERS_PATH, ANSWERS_EXAMPLE_PATH):
+        console.print("[green]✔ Created data/candidate_answers_reference.json from the example (gitignored).[/green]")
+    console.print(
+        "[dim]Add experience, education and skills by editing data/profile.json, and your answers to common "
+        "screening questions (CTC, notice period, etc.) in data/candidate_answers_reference.json.[/dim]"
+    )
 
 
 def check_environment() -> dict[str, Any]:
@@ -174,8 +308,12 @@ def run_interactive_onboarding() -> None:
             yaml.safe_dump(config_data, f, sort_keys=False)
         console.print("[green]✔ Updated config.yaml successfully.[/green]")
 
-    # Step 2: Credentials & Free Tiers Explanation
-    console.print("\n[bold green]Step 2: API Keys & Credentials[/bold green]")
+    # Step 2: Candidate Profile
+    console.print("\n[bold green]Step 2: Candidate Profile[/bold green]")
+    run_profile_step()
+
+    # Step 3: Credentials & Free Tiers Explanation
+    console.print("\n[bold green]Step 3: API Keys & Credentials[/bold green]")
     console.print(
         Panel(
             "[bold white]✨ Free & Zero-Setup Tiers:[/bold white]\n"
@@ -190,9 +328,12 @@ def run_interactive_onboarding() -> None:
 
     # LLM Key (Gemini)
     current_gemini = current_env.get("GEMINI_API_KEY", "")
-    console.print(f"\n[bold]1. Gemini API Key[/bold] (for resume tailoring & form evaluation, free from [link=https://aistudio.google.com/]Google AI Studio[/link]):")
+    console.print(
+        "\n[bold]1. Gemini API Key[/bold] (Optional, [yellow]not used yet[/yellow]: AI job scoring and resume "
+        "tailoring are planned. Free from [link=https://aistudio.google.com/]Google AI Studio[/link]):"
+    )
     console.print(f"   Current Key: {mask_secret(current_gemini)}")
-    if Confirm.ask("   Do you want to update your Gemini API Key?", default=not bool(current_gemini)):
+    if Confirm.ask("   Do you want to set a Gemini API Key now?", default=False):
         gemini_input = Prompt.ask("   Paste your GEMINI_API_KEY (leave empty to skip)", password=True)
         if gemini_input.strip():
             with console.status("   Verifying Gemini key..."):
@@ -231,23 +372,42 @@ def run_interactive_onboarding() -> None:
 
     # Notion Integration
     current_notion = current_env.get("NOTION_API_KEY", "")
+    notion_token = current_notion
     console.print(f"\n[bold]4. Notion Integration[/bold] (Optional: for tabular database tracking):")
     console.print(f"   Current Token: {mask_secret(current_notion)}")
     if Confirm.ask("   Do you want to configure Notion Table Sync?", default=not bool(current_notion)):
         notion_input = Prompt.ask("   Paste your NOTION_API_KEY (starts with ntn_)", password=True)
         if notion_input.strip():
+            notion_token = notion_input.strip()
+            new_env_vars["NOTION_API_KEY"] = notion_token
             with console.status("   Verifying Notion token..."):
-                if test_notion_key(notion_input.strip()):
-                    console.print("   [green]✔ Notion Integration Token verified![/green]")
-                    new_env_vars["NOTION_API_KEY"] = notion_input.strip()
-                    parent_input = Prompt.ask("   Paste your Notion Parent Page URL or ID")
-                    if parent_input.strip():
-                        # Extract 32-char ID if URL
-                        clean_id = parent_input.strip().split("?")[0].split("-")[-1].replace("/", "")
-                        new_env_vars["NOTION_PARENT_PAGE_ID"] = clean_id
-                else:
-                    console.print("   [yellow]⚠️ Could not verify Notion token. Saving anyway.[/yellow]")
-                    new_env_vars["NOTION_API_KEY"] = notion_input.strip()
+                verified = test_notion_key(notion_token)
+            if verified:
+                console.print("   [green]✔ Notion Integration Token verified![/green]")
+            else:
+                console.print("   [yellow]⚠️ Could not verify Notion token. Saving anyway.[/yellow]")
+
+    if notion_token:
+        from .integrations.notion_client import clean_notion_id
+
+        existing_db = current_env.get("NOTION_DATABASE_ID", "")
+        if existing_db and Confirm.ask("   A Notion jobs table is already configured. Keep using it?", default=True):
+            console.print("   [green]✔ Keeping your existing Notion table.[/green]")
+        elif Confirm.ask("   Create your Notion jobs table now?", default=True):
+            parent_input = _ask(
+                "   Paste the Notion parent page URL or ID (the page you connected your integration to)",
+                current_env.get("NOTION_PARENT_PAGE_ID", ""),
+            )
+            if parent_input:
+                new_env_vars["NOTION_PARENT_PAGE_ID"] = clean_notion_id(parent_input)
+                try:
+                    with console.status("   Creating Notion table..."):
+                        notion_env, table_url = provision_notion_table(notion_token, parent_input)
+                    new_env_vars.update(notion_env)
+                    console.print(f"   [green]✔ Notion table created:[/green] {table_url}")
+                except Exception as err:
+                    console.print(f"   [red]❌ Could not create the Notion table: {err}[/red]")
+                    console.print(NOTION_CONNECT_TIP)
 
     # Database Path
     new_env_vars.setdefault("DATABASE_PATH", current_env.get("DATABASE_PATH", "data/jobs.db"))
@@ -256,11 +416,18 @@ def run_interactive_onboarding() -> None:
     write_env_file(new_env_vars)
     console.print("\n[bold green]✔ Credentials saved securely to .env (strictly excluded from git).[/bold green]")
 
-    # Step 3: Database & Ready Check
-    console.print("\n[bold green]Step 3: Database & Pipeline Verification[/bold green]")
+    # Step 4: Database, Company Registry & Ready Check
+    console.print("\n[bold green]Step 4: Database & Pipeline Verification[/bold green]")
     from .db import init_db
+    from .discovery.registry import CompanyRegistry
+
     db_path = init_db()
     console.print(f"✔ SQLite Ledger active at [cyan]{db_path}[/cyan]")
+    registry = CompanyRegistry(db_path=db_path)
+    seeded = registry.ensure_seeded()
+    if seeded:
+        console.print(f"✔ Loaded [cyan]{seeded}[/cyan] company boards from companies.yaml into your registry.")
+    active_boards = registry.get_stats().get("active_companies", 0)
 
     # Setup summary table
     table = Table(title="Configuration Summary")
@@ -268,12 +435,20 @@ def run_interactive_onboarding() -> None:
     table.add_column("Status", style="white")
 
     updated_env = read_env_file()
-    table.add_row("Tier 1: Direct APIs (Greenhouse/Lever/Ashby)", "[bold green]Active (Free, No Key Required)[/bold green]")
-    table.add_row("Tier 2: JobSpy (LinkedIn/Indeed/Glassdoor)", "[bold green]Active (Free, No Key Required)[/bold green]")
-    table.add_row("Tier 3: Apify Naukri Anti-Bot", "[green]Configured[/green]" if updated_env.get("APIFY_API_TOKEN") else "[dim]Disabled (Optional)[/dim]")
+    profile_missing = missing_profile_fields(load_profile())
+    table.add_row("Candidate Profile (data/profile.json)", "[green]Complete[/green]" if not profile_missing else f"[yellow]{len(profile_missing)} field(s) missing[/yellow]")
+    table.add_row("Tier 1: Direct APIs (Greenhouse/Lever/Ashby)", f"[bold green]Active: {active_boards} company boards (Free)[/bold green]" if active_boards else "[yellow]No company boards in registry[/yellow]")
+    table.add_row("Tier 2: JobSpy (LinkedIn/Indeed/Glassdoor/Google/Naukri)", "[bold green]Active (Free, No Key Required)[/bold green]")
+    table.add_row("Tier 3: Apify Naukri (fallback)", "[green]Configured[/green]" if updated_env.get("APIFY_API_TOKEN") else "[dim]Disabled (Optional)[/dim]")
     table.add_row("Tier 4: Firecrawl Enterprise Portals", "[green]Configured[/green]" if updated_env.get("FIRECRAWL_API_KEY") else "[dim]Disabled (Optional)[/dim]")
-    table.add_row("Notion Tabular Sync", "[green]Configured[/green]" if updated_env.get("NOTION_API_KEY") else "[dim]Disabled (Optional)[/dim]")
-    table.add_row("LLM Resume Tailoring", "[green]Configured[/green]" if updated_env.get("GEMINI_API_KEY") else "[dim]Mock Mode (Default)[/dim]")
+    if updated_env.get("NOTION_API_KEY") and updated_env.get("NOTION_DATABASE_ID"):
+        notion_status = "[green]Configured (table ready)[/green]"
+    elif updated_env.get("NOTION_API_KEY"):
+        notion_status = "[yellow]Token set, no table yet: run init-notion-db[/yellow]"
+    else:
+        notion_status = "[dim]Disabled (Optional)[/dim]"
+    table.add_row("Notion Tabular Sync", notion_status)
+    table.add_row("LLM Scoring & Tailoring", "[dim]Not available yet (planned)[/dim]")
     console.print(table)
 
     console.print(

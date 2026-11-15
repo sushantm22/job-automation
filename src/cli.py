@@ -27,6 +27,9 @@ def init() -> None:
     """Create the SQLite database and basic schema."""
     db_path = init_db()
     typer.echo(f"Database initialized at {db_path}")
+    seeded = CompanyRegistry().ensure_seeded()
+    if seeded:
+        typer.echo(f"Loaded {seeded} company boards from companies.yaml into the registry.")
 
 
 @app.command()
@@ -93,6 +96,9 @@ def discover(
     table.add_row("[dim]Duplicates Prevented[/dim]", "Already tracked in SQLite", f"[dim]{result['duplicates_prevented']}[/dim]")
     table.add_row("[bold magenta]Notion Synced[/bold magenta]", "Live Opportunities in Notion Table", f"[bold magenta]{result.get('notion_synced', 0)}[/bold magenta]")
     console.print(table)
+
+    if result.get("registry_seeded", 0) > 0:
+        console.print(f"🌱 [bold green]First run:[/bold green] loaded {result['registry_seeded']} company boards from companies.yaml into your registry.")
 
     if result.get("harvested_companies", 0) > 0:
         console.print(f"🌱 [bold green]Auto-Harvested:[/bold green] {result['harvested_companies']} new verified company ATS boards into registry!")
@@ -303,13 +309,16 @@ def init_notion_db(
         typer.echo(f"  • Title: {title}")
         typer.echo(f"  • Database ID: {db_id}")
         typer.echo(f"  • Table URL: {db_url}")
-        typer.echo("\n👉 Update your .env or config.yaml with:")
-        typer.echo(f"NOTION_DATABASE_ID={clean_notion_id(db_id)}")
+        from .onboarding import write_env_file
+        write_env_file({
+            "NOTION_DATABASE_ID": clean_notion_id(db_id),
+            "NOTION_PARENT_PAGE_ID": clean_notion_id(parent_page_id),
+        })
+        typer.echo("✅ Saved NOTION_DATABASE_ID and NOTION_PARENT_PAGE_ID to .env — discovery will sync here automatically.")
     except Exception as err:
+        from .onboarding import NOTION_CONNECT_TIP
         typer.echo(f"❌ Error creating Notion database: {err}")
-        typer.echo("\nTip: Make sure you have invited/connected 'notion pat' to your parent page in Notion:")
-        typer.echo("  1. Open the page in Notion")
-        typer.echo("  2. Click '...' (top-right) -> 'Connections' -> Select 'notion pat'")
+        typer.echo(NOTION_CONNECT_TIP)
 
 
 @app.command("sync-notion")

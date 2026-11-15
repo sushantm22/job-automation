@@ -31,12 +31,14 @@ class JobDiscoveryEngine:
         self.settings = settings or load_settings()
         self.db_path = db_path
         self.registry = CompanyRegistry(db_path=self.db_path)
+        self.registry_seeded = 0
 
     def run_tier1_direct_apis(self, company_limit: int | None = 50) -> list[JobRecord]:
         """
         Tier 1: High-speed, 100% free direct API polling for tracked ATS boards.
         Polls the least-recently-checked boards first so `company_limit` rotates through the registry.
         """
+        self.registry_seeded = self.registry.ensure_seeded()
         slugs_by_platform = self.registry.get_slugs_by_platform(limit=company_limit, stale_first=True)
         discovered: list[JobRecord] = []
 
@@ -255,6 +257,7 @@ class JobDiscoveryEngine:
             "net_new_inserted": net_new,
             "duplicates_prevented": duplicates_prevented,
             "harvested_companies": harvested_count,
+            "registry_seeded": self.registry_seeded,
             "notion_synced": notion_synced,
             "jobs": all_jobs,
         }

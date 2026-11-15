@@ -4,12 +4,12 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .db import get_connection, init_db
+from .db import DB_PATH, get_connection, init_db
 
 
 class AnswerBank:
     def __init__(self, db_path: str | Path | None = None):
-        self.db_path = Path(db_path) if db_path is not None else Path(__file__).resolve().parent.parent / "data" / "jobs.db"
+        self.db_path = Path(db_path) if db_path is not None else DB_PATH
         init_db(self.db_path)
 
     def _normalize(self, value: str) -> str:

@@ -109,7 +109,11 @@ Keep secrets local. The project intentionally avoids committing sensitive values
 
 ### `data/profile.json`
 
-This is the candidate profile used for form filling and matching. Update it with your real details before running the workflow.
+This is the candidate profile used for form filling and matching. It is gitignored so your personal details never get committed. `python -m src.cli setup` creates it from `data/profile.example.json` and asks for the basics; or copy it yourself:
+
+```bash
+cp data/profile.example.json data/profile.json
+```
 
 ## First-run checklist
 
@@ -195,7 +199,7 @@ The app is structured so that:
 ## Project data files
 
 - `data/jobs.db` — the SQLite database
-- `data/profile.json` — profile and candidate details
+- `data/profile.json` — your profile and candidate details (gitignored; copy from `data/profile.example.json`)
 - `data/candidate_answers_reference.json` — your answers to common extra questions (gitignored; copy from `data/candidate_answers.example.json`)
 - `data/target_company_sites.json` — target company and portal list
 

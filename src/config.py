@@ -10,6 +10,30 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config.yaml"
+DEFAULT_DATABASE_PATH = ROOT / "data" / "jobs.db"
+
+
+def load_env_file() -> None:
+    """Loads the project .env into os.environ without overriding variables already set."""
+    env_file = ROOT / ".env"
+    if env_file.exists():
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(env_file, override=False)
+        except Exception:
+            pass
+
+
+def resolve_database_path(raw: str | os.PathLike[str] | None = None) -> Path:
+    """
+    Resolves the SQLite ledger location from a DATABASE_PATH value.
+    Empty -> data/jobs.db. Relative paths resolve against the project root (not the
+    current working directory), so `DATABASE_PATH=data/alice.db` works from anywhere.
+    """
+    if raw is None or not str(raw).strip():
+        return DEFAULT_DATABASE_PATH
+    path = Path(str(raw).strip()).expanduser()
+    return path if path.is_absolute() else ROOT / path
 
 
 class Settings(BaseSettings):
@@ -44,7 +68,7 @@ class Settings(BaseSettings):
     firecrawl_api_key: str = Field(default="", validation_alias=AliasChoices("FIRECRAWL_API_KEY", "firecrawl_api_key"))
     enterprise_portals: list[dict[str, str]] = Field(default_factory=list)
     firecrawl_daily_budget: int = 10
-    database_path: Path = Field(default=ROOT / "data" / "jobs.db", validation_alias=AliasChoices("DATABASE_PATH", "database_path"))
+    database_path: Path = Field(default=DEFAULT_DATABASE_PATH, validation_alias=AliasChoices("DATABASE_PATH", "database_path"))
     notion_enabled: bool = True
     notion_api_token: str = Field(default="", validation_alias=AliasChoices("NOTION_API_KEY", "notion_api_token"))
     notion_database_id: str = Field(default="", validation_alias=AliasChoices("NOTION_DATABASE_ID", "notion_database_id"))
@@ -63,14 +87,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 
 def load_settings(config_path: Path = CONFIG_PATH) -> Settings:
-    # Ensure .env is read into environment if present
-    env_file = ROOT / ".env"
-    if env_file.exists():
-        try:
-            from dotenv import load_dotenv
-            load_dotenv(env_file, override=False)
-        except Exception:
-            pass
+    load_env_file()
 
     raw = _read_yaml(config_path)
 
@@ -115,7 +132,7 @@ def load_settings(config_path: Path = CONFIG_PATH) -> Settings:
     env_values = {
         "llm_provider": os.getenv("LLM_PROVIDER"),
         "llm_model": os.getenv("LLM_MODEL"),
-        "database_path": Path(os.getenv("DATABASE_PATH")) if os.getenv("DATABASE_PATH") else None,
+        "database_path": resolve_database_path(os.getenv("DATABASE_PATH")) if os.getenv("DATABASE_PATH") else None,
         "apify_api_token": os.getenv("APIFY_API_TOKEN"),
         "firecrawl_api_key": os.getenv("FIRECRAWL_API_KEY"),
         "notion_api_token": os.getenv("NOTION_API_KEY"),

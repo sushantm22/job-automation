@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = ROOT / "data" / "jobs.db"
+from .config import ROOT, load_env_file, resolve_database_path
+
+# Resolved once at import from DATABASE_PATH (.env or environment) so every module that
+# defaults to DB_PATH — CLI, discovery engine, registry, Notion sync — uses the same ledger.
+load_env_file()
+DB_PATH = resolve_database_path(os.getenv("DATABASE_PATH"))
 
 
 SCHEMA = """
