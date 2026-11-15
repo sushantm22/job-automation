@@ -1,0 +1,184 @@
+ashby:
+- abacum
+- apollo-graphql
+- browserbase
+- cartesia
+- causal
+- cognition
+- cursor
+- elevenlabs
+- firecrawl
+- hedra
+- linear
+- openai
+- pennylane
+- poolside
+- railway
+- ramp
+- render
+- replit
+- sentry
+- tavily
+- tldraw
+- writer
+- wundergraph
+greenhouse:
+- adyen
+- affirm
+- airbnb
+- airtable
+- alpaca
+- anthropic
+- applovin
+- asana
+- axiom
+- axonius
+- bigid
+- bitgo
+- blumira
+- branch
+- brex
+- bringg
+- buildkite
+- carta
+- chainguard
+- checkr
+- chime
+- circleci
+- cloudflare
+- cockroachlabs
+- cognism
+- coinbase
+- collibra
+- commvault
+- consensys
+- coreweave
+- coursera
+- databricks
+- datadog
+- dataiku
+- deliveroo
+- dialpad
+- drivewealth
+- druva
+- duolingo
+- easyship
+- elastic
+- epicgames
+- expel
+- faire
+- fastly
+- fireblocks
+- five9
+- fivetran
+- flexport
+- forward
+- fourkites
+- galileo
+- gemini
+- geotab
+- gitlab
+- glance
+- groupon
+- gusto
+- hackerrank
+- honeycomb
+- huntress
+- inmobi
+- instacart
+- intercom
+- island
+- lattice
+- launchdarkly
+- lithic
+- mercury
+- mongodb
+- monzo
+- motive
+- n26
+- narvar
+- neo4j
+- netradyne
+- okta
+- oscar
+- pagerduty
+- pingcap
+- pinterest
+- project44
+- public
+- purestorage
+- reddit
+- riotgames
+- robinhood
+- roblox
+- rubrik
+- salesloft
+- samsara
+- scaleai
+- scopely
+- sezzle
+- shipmonk
+- simpplr
+- singlestore
+- slice
+- starburst
+- stripe
+- sumologic
+- tailscale
+- tigera
+- togetherai
+- tripadvisor
+- trivago
+- tubi
+- twilio
+- twitch
+- udemy
+- vercel
+- verkada
+- wolt
+- yugabyte
+- zoominfo
+lever:
+- educative
+- metabase
+enterprise_portals:
+- name: Google
+  url: https://www.google.com/about/careers/applications/jobs/results?q=software+engineer+india
+- name: Apple
+  url: https://jobs.apple.com/en-in/search?search=software
+- name: Uber
+  url: https://www.uber.com/global/en/careers/list/?location=IND--Bangalore
+- name: Netflix
+  url: https://explore.jobs.netflix.net/careers?query=software
+- name: Microsoft
+  url: https://careers.microsoft.com/us/en/search-results?keywords=software%20engineer&location=India
+- name: Amazon
+  url: https://www.amazon.jobs/en/search?base_query=software+engineer&loc_query=India
+- name: Meta
+  url: https://www.metacareers.com/jobs?q=software%20engineer&location[0]=India
+- name: Flipkart
+  url: https://www.flipkartcareers.com/#!/joblist
+- name: Swiggy
+  url: https://careers.swiggy.com/#/careers?src=homepage
+- name: PhonePe
+  url: https://www.phonepe.com/careers/open-roles/
+- name: Razorpay
+  url: https://razorpay.com/jobs/
+- name: Zomato
+  url: https://www.zomato.com/careers
+- name: CRED
+  url: https://careers.cred.club/openings
+- name: Walmart
+  url: https://careers.walmart.com/results?q=software%20engineer&page=1&sort=rank&jobCity=India
+- name: Adobe
+  url: https://careers.adobe.com/us/en/search-results?keywords=software%20engineer&location=India
+- name: Salesforce
+  url: https://careers.salesforce.com/en/jobs/?search=software+engineer&location=India
+- name: SAP
+  url: https://jobs.sap.com/search/?q=software+engineer&locationsearch=India
+- name: Atlassian
+  url: https://www.atlassian.com/company/careers/all-jobs?location=India&search=engineer
+- name: Spotify
+  url: https://www.lifeatspotify.com/jobs?l=india&q=engineer
+- name: PayPal
+  url: https://paypal.eightfold.ai/careers?query=software%20engineer&location=India

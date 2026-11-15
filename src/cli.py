@@ -1,0 +1,389 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import typer
+import yaml
+
+from .config import load_settings
+from .db import init_db, list_jobs, upsert_jobs
+from .discovery import (
+    CompanyRegistry,
+    JobDiscoveryEngine,
+    fetch_ashby_jobs,
+    fetch_greenhouse_jobs,
+    fetch_jobspy_jobs,
+    fetch_lever_jobs,
+    resolve_domain_to_ats,
+)
+from .llm.base import MockLLMClient
+from .scoring import hard_filter_jobs, score_job
+
+app = typer.Typer(add_completion=False, help="Job application automation assistant")
+
+
+@app.command()
+def init() -> None:
+    """Create the SQLite database and basic schema."""
+    db_path = init_db()
+    typer.echo(f"Database initialized at {db_path}")
+
+
+@app.command()
+def discover(
+    tiers: str = typer.Option("all", help="Tiers to execute: 'all', or comma-separated numbers '1,2,3,4'"),
+    results_per_board: int = typer.Option(10, help="Number of results wanted per board for aggregators"),
+    company_limit: int = typer.Option(50, help="Max companies to query per run for Tier 1 (0 for all registered)"),
+    auto_harvest: bool = typer.Option(True, help="Automatically harvest new company ATS slugs from incoming job URLs"),
+) -> None:
+    """
+    Executes the 4-Tier Zero-Human-Intervention Job Discovery Engine:
+      • Tier 1: Direct ATS APIs (Greenhouse / Lever / Ashby)
+      • Tier 2: JobSpy Aggregators (LinkedIn / Indeed / Glassdoor)
+      • Tier 3: Apify Cloud Anti-Bot (Naukri & Protected Sites)
+      • Tier 4: Firecrawl Enterprise Portals (Google / Apple / Uber / Netflix)
+    Deduplicates all findings into SQLite ledger and auto-harvests new ATS boards.
+    """
+    from rich.console import Console
+    from rich.table import Table
+
+    console = Console()
+    settings = load_settings()
+    engine = JobDiscoveryEngine(settings=settings)
+
+    # Parse requested tiers
+    if tiers.strip().lower() == "all":
+        selected_tiers = [1, 2, 3, 4]
+    else:
+        try:
+            selected_tiers = [int(t.strip()) for t in tiers.split(",") if t.strip()]
+        except ValueError:
+            typer.echo(f"Invalid tiers format: '{tiers}'. Expected 'all' or '1,2,3,4'.")
+            raise typer.Exit(code=1)
+
+    console.print("\n[bold cyan]🚀 Starting Multi-Tier Job Discovery Engine[/bold cyan]")
+    console.print(f"Active Tiers: [green]{selected_tiers}[/green] | Target: Pan-India & Remote\n")
+
+    result = engine.execute_all_tiers(
+        selected_tiers=selected_tiers,
+        company_limit=company_limit if company_limit > 0 else None,
+        results_per_board=results_per_board,
+        auto_harvest=auto_harvest,
+    )
+
+    # Display Rich Breakdown Table
+    table = Table(title="Discovery Run Summary (All Tiers)")
+    table.add_column("Tier", style="cyan")
+    table.add_column("Channel / Platform", style="white")
+    table.add_column("Jobs Found", style="green", justify="right")
+
+    tier_map = {
+        "tier1_direct_apis": ("Tier 1", "Direct APIs (Greenhouse / Lever / Ashby)"),
+        "tier2_jobspy": ("Tier 2", "JobSpy (LinkedIn / Indeed / Glassdoor)"),
+        "tier3_apify": ("Tier 3", "Apify (Naukri & Protected Aggregators)"),
+        "tier4_firecrawl": ("Tier 4", "Firecrawl (Google / Apple / Enterprise Portals)"),
+    }
+
+    for key, (t_label, desc) in tier_map.items():
+        table.add_row(t_label, desc, str(result["tier_counts"].get(key, 0)))
+
+    table.add_section()
+    table.add_row("[bold]Total Discovered[/bold]", "Across All Tiers", f"[bold]{result['total_discovered']}[/bold]")
+    table.add_row("[bold green]Net New Stored[/bold green]", "Inserted into SQLite Deduplication Ledger", f"[bold green]{result['net_new_inserted']}[/bold green]")
+    table.add_row("[dim]Duplicates Prevented[/dim]", "Already tracked in SQLite", f"[dim]{result['duplicates_prevented']}[/dim]")
+    table.add_row("[bold magenta]Notion Synced[/bold magenta]", "Live Opportunities in Notion Table", f"[bold magenta]{result.get('notion_synced', 0)}[/bold magenta]")
+    console.print(table)
+
+    if result.get("harvested_companies", 0) > 0:
+        console.print(f"🌱 [bold green]Auto-Harvested:[/bold green] {result['harvested_companies']} new verified company ATS boards into registry!")
+
+    if result.get("notion_synced", 0) > 0:
+        console.print(f"📋 [bold cyan]Notion Table Updated:[/bold cyan] {result['notion_synced']} jobs synced to [link=https://app.notion.com/p/{settings.notion_database_id}]Notion Table[/link]")
+    elif settings.notion_enabled and settings.notion_database_id:
+        console.print(f"📋 [dim]Notion Database:[/dim] All stored jobs are up to date in [link=https://app.notion.com/p/{settings.notion_database_id}]Notion[/link]")
+
+
+@app.command("seed-companies")
+def seed_companies(
+    seed_file: Path = typer.Option(
+        Path(__file__).resolve().parent.parent / "data" / "seeds" / "companies_seed.json",
+        help="Path to seed JSON file",
+    ),
+    sync_yaml: bool = typer.Option(True, help="Sync to src/discovery/companies.yaml"),
+) -> None:
+    """Import 1,000+ verified tech company slugs into the database registry and sync to companies.yaml."""
+    registry = CompanyRegistry()
+    inserted = registry.import_from_seed(seed_file)
+    typer.echo(f"Successfully imported {inserted} new companies from {seed_file.name}.")
+
+    if sync_yaml:
+        total_synced = registry.sync_to_yaml()
+        typer.echo(f"Synced {total_synced} active companies to src/discovery/companies.yaml.")
+
+    stats = registry.get_stats()
+    typer.echo(f"Current Registry Stats: {stats['total_companies']} total companies tracked.")
+
+
+@app.command("explore-companies")
+def explore_companies(
+    target_file: Path = typer.Option(
+        Path(__file__).resolve().parent.parent / "data" / "target_company_sites.json",
+        help="Path to company domains JSON file",
+    ),
+    domain: str = typer.Option(None, help="Single company domain or URL to probe"),
+) -> None:
+    """Probes company websites/domains to detect their ATS (Greenhouse, Lever, Ashby) and auto-registers them."""
+    registry = CompanyRegistry()
+    targets: list[str] = []
+
+    if domain:
+        targets = [domain]
+    elif target_file.exists():
+        import json
+        with target_file.open("r", encoding="utf-8") as handle:
+            targets = json.load(handle)
+
+    typer.echo(f"Exploring ATS boards across {len(targets)} target companies...")
+    found_count = 0
+
+    for site in targets:
+        try:
+            discovered_slugs = resolve_domain_to_ats(site, timeout=6.0, verify_live=True)
+            for item in discovered_slugs:
+                platform = item["platform"]
+                slug = item["slug"]
+                job_cnt = item.get("job_count", 0)
+                typer.echo(f"  [Found & Verified] {site} -> {platform.upper()}: {slug} (active jobs: {job_cnt})")
+                from .db import upsert_company
+                is_new = upsert_company(
+                    platform=platform,
+                    slug=slug,
+                    name=item.get("name"),
+                    status="active",
+                    job_count=job_cnt,
+                    discovered_via="domain_probe",
+                )
+                if is_new:
+                    found_count += 1
+        except Exception as err:
+            typer.echo(f"  [Error] {site}: {err}")
+
+    if found_count > 0:
+        registry.sync_to_yaml()
+        typer.echo(f"✨ Successfully discovered and registered {found_count} new company boards!")
+    else:
+        typer.echo("Done exploring. No new unmapped ATS boards found in this batch.")
+
+
+@app.command("validate-companies")
+def validate_companies(
+    platform: str = typer.Option(None, help="Platform to validate: 'greenhouse', 'lever', 'ashby'"),
+    batch_size: int = typer.Option(50, help="Number of companies to check"),
+    prune_inactive: bool = typer.Option(True, help="Mark genuinely 404/defunct boards as inactive"),
+) -> None:
+    """Probes registered companies to verify they are still active, pruning only explicit 404 defunct boards."""
+    from .discovery.harvester import probe_company_board
+    from .db import list_companies, upsert_company
+
+    registry = CompanyRegistry()
+    rows = list_companies(platform=platform, status="active", limit=batch_size)
+    typer.echo(f"Validating {len(rows)} registered company boards...")
+
+    active_count = 0
+    inactive_count = 0
+    network_skipped = 0
+
+    for r in rows:
+        p = r["platform"]
+        slug = r["slug"]
+        probe = probe_company_board(p, slug, timeout=5.0)
+
+        if probe["valid"]:
+            active_count += 1
+            upsert_company(
+                platform=p,
+                slug=slug,
+                name=probe.get("name"),
+                status="active",
+                job_count=probe.get("job_count", 0),
+            )
+            typer.echo(f"  ✅ [Active] {p.upper()}: {slug} (jobs: {probe.get('job_count', 0)})")
+        elif probe["status"] == "not_found":
+            # Genuine 404: The board slug was deleted or moved off this ATS
+            inactive_count += 1
+            typer.echo(f"  ⚠️  [Defunct/404] {p.upper()}: {slug} ({probe.get('error', 'HTTP 404')})")
+            if prune_inactive:
+                upsert_company(platform=p, slug=slug, status="inactive")
+        else:
+            # Network failure, DNS issue, or rate limit: KEEP ACTIVE, DO NOT PRUNE!
+            network_skipped += 1
+            typer.echo(f"  ℹ️  [Retained - {probe['status']}] {p.upper()}: {slug} ({probe.get('error')})")
+
+    if inactive_count > 0 and prune_inactive:
+        registry.sync_to_yaml()
+        typer.echo(f"Pruned {inactive_count} genuinely defunct boards from companies.yaml.")
+
+    typer.echo(f"\nValidation complete:")
+    typer.echo(f"  • {active_count} verified active boards")
+    typer.echo(f"  • {inactive_count} defunct 404 boards (pruned)")
+    typer.echo(f"  • {network_skipped} network/DNS skipped (safely retained as active)")
+
+
+@app.command("companies-stats")
+def companies_stats() -> None:
+    """Display statistics about tracked companies in the registry."""
+    from rich.console import Console
+    from rich.table import Table
+
+    console = Console()
+    registry = CompanyRegistry()
+    stats = registry.get_stats()
+
+    table = Table(title="Company ATS Registry Statistics")
+    table.add_column("Platform", style="cyan")
+    table.add_column("Company Count", style="green", justify="right")
+    table.add_column("Open Jobs Known", style="yellow", justify="right")
+
+    total_jobs = sum(d["jobs"] for d in stats["by_platform"].values())
+    for platform, data in stats["by_platform"].items():
+        table.add_row(platform.title(), str(data["count"]), str(data["jobs"]))
+
+    table.add_section()
+    table.add_row("Total Active", str(stats.get("active_companies", 0)), str(total_jobs))
+    console.print(table)
+    inactive_count = stats.get("by_status", {}).get("inactive", 0)
+    if inactive_count:
+        console.print(f"[dim]Pruned / Inactive: {inactive_count} boards (excluded from crawling)[/dim]")
+    console.print(f"[bold]Discovered via:[/bold] {stats['by_source']}")
+
+
+@app.command()
+def score() -> None:
+    """Score all new jobs and update their match result in the database."""
+    settings = load_settings()
+    rows = list_jobs(status="new")
+    llm = MockLLMClient()
+    for row in rows:
+        job_data = {
+            "title": row["title"],
+            "location": row["location"],
+            "description": row["description"],
+            "source": row["source"],
+            "company": row["company"],
+        }
+        result = score_job(job_data, profile_summary={"skills": ["python", "backend"], "experience": ["software engineering"]}, llm=llm)
+        typer.echo(f"{row['title']} -> {result.score}/100 ({result.reason})")
+
+
+@app.command()
+def list() -> None:
+    """List jobs currently stored in the database."""
+    rows = list_jobs()
+    if not rows:
+        typer.echo("No jobs found.")
+        return
+    for row in rows:
+        typer.echo(f"[{row['status']}] {row['company']} - {row['title']} ({row['location']})")
+
+
+@app.command("init-notion-db")
+def init_notion_db(
+    parent_page_id: str = typer.Option(..., help="Notion Parent Page URL or 32-character Page ID"),
+    title: str = typer.Option("Automated Job Applications", help="Title of the Notion database table"),
+) -> None:
+    """Creates a structured tabular Jobs Database inside a Notion page using the Notion API."""
+    from .integrations.notion_client import create_notion_job_database, clean_notion_id
+
+    typer.echo(f"Creating Notion Database under page: {parent_page_id}...")
+    try:
+        res = create_notion_job_database(parent_page_id=parent_page_id, title=title)
+        db_id = res["id"]
+        db_url = res.get("url")
+        typer.echo(f"✅ Successfully created Notion Database table!")
+        typer.echo(f"  • Title: {title}")
+        typer.echo(f"  • Database ID: {db_id}")
+        typer.echo(f"  • Table URL: {db_url}")
+        typer.echo("\n👉 Update your .env or config.yaml with:")
+        typer.echo(f"NOTION_DATABASE_ID={clean_notion_id(db_id)}")
+    except Exception as err:
+        typer.echo(f"❌ Error creating Notion database: {err}")
+        typer.echo("\nTip: Make sure you have invited/connected 'notion pat' to your parent page in Notion:")
+        typer.echo("  1. Open the page in Notion")
+        typer.echo("  2. Click '...' (top-right) -> 'Connections' -> Select 'notion pat'")
+
+
+@app.command("sync-notion")
+def sync_notion(
+    limit: int = typer.Option(50, help="Max unsynced jobs to push in this batch"),
+    database_id: str = typer.Option(None, help="Target Notion Database ID (defaults to config)"),
+) -> None:
+    """Syncs new jobs from SQLite database to the Notion Database table."""
+    from .integrations.notion_client import sync_jobs_to_notion
+
+    typer.echo(f"Syncing jobs from SQLite to Notion...")
+    try:
+        res = sync_jobs_to_notion(database_id=database_id, limit=limit)
+        typer.echo(f"Sync complete:")
+        typer.echo(f"  • {res['synced']} jobs synced to Notion")
+        if res.get("failed", 0) > 0:
+            typer.echo(f"  • {res['failed']} jobs failed")
+    except Exception as err:
+        typer.echo(f"❌ Error during Notion sync: {err}")
+
+
+@app.command("setup")
+def setup() -> None:
+    """Guided Onboarding Agent: configures roles, locations, credentials, and local database."""
+    from .onboarding import run_interactive_onboarding
+    run_interactive_onboarding()
+
+
+@app.command("reset-db")
+def reset_db_cmd(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+) -> None:
+    """Clears all jobs and applications from the local database while preserving schema."""
+    from rich.prompt import Confirm
+    from rich.console import Console
+    from .db import reset_db
+
+    console = Console()
+    if not yes:
+        proceed = Confirm.ask(
+            "[bold red]⚠️ Are you sure you want to delete all jobs and reset your local database?[/bold red]",
+            default=False,
+        )
+        if not proceed:
+            console.print("[dim]Operation cancelled.[/dim]")
+            return
+
+    res = reset_db()
+    console.print(f"[bold green]✔ Local database reset cleanly:[/bold green] Deleted {res['jobs_deleted']} jobs and {res['applications_deleted']} applications.")
+
+
+@app.command("verify-secrets")
+def verify_secrets_cmd() -> None:
+    """Scans all git-tracked files to ensure no API tokens or secrets are exposed."""
+    from rich.console import Console
+    from rich.table import Table
+    from .onboarding import audit_tracked_secrets
+
+    console = Console()
+    violations = audit_tracked_secrets()
+    if violations:
+        console.print("\n[bold red]❌ SECURITY ALERT: Potential API Keys / Secrets Exposed in Git Tracked Files![/bold red]")
+        table = Table(title="Exposed Credentials")
+        table.add_column("File", style="cyan")
+        table.add_column("Secret Type", style="yellow")
+        table.add_column("Masked Snippet", style="white")
+        for v in violations:
+            table.add_row(v["file"], v["type"], v["snippet"])
+        console.print(table)
+        console.print("\n[red]Action Required:[/red] Remove these tokens from the files above and move them to `.env` before pushing to GitHub.")
+        raise typer.Exit(code=1)
+    else:
+        console.print("[bold green]✔ Security Audit Passed:[/bold green] Zero API keys or secrets detected in git-tracked files.")
+
+
+if __name__ == "__main__":
+    app()

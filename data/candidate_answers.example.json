@@ -1,0 +1,74 @@
+{
+  "_note": "Copy to data/candidate_answers_reference.json (gitignored) and fill in your own answers.",
+  "answers": {
+    "notice_period": {
+      "value": "",
+      "days": null
+    },
+    "work_authorization": {
+      "question": "Legally authorized to work in India?",
+      "value": ""
+    },
+    "sponsorship_required": {
+      "value": ""
+    },
+    "willing_to_relocate": {
+      "value": ""
+    },
+    "expected_salary": {
+      "value": "",
+      "amount_inr": null,
+      "type": ""
+    },
+    "current_ctc": {
+      "value": "",
+      "amount_inr": null,
+      "variable_or_bonus": ""
+    },
+    "work_arrangement": {
+      "value": ""
+    },
+    "earliest_start_date": {
+      "value": ""
+    },
+    "total_experience": {
+      "months": null,
+      "years": null,
+      "breakdown": ""
+    },
+    "willing_to_work_shifts": {
+      "value": ""
+    },
+    "referral_source": {
+      "value": ""
+    },
+    "previous_application": {
+      "value": ""
+    },
+    "gender": {
+      "value": ""
+    },
+    "ethnicity": {
+      "value": ""
+    },
+    "veteran_status": {
+      "value": ""
+    },
+    "disability_status": {
+      "value": ""
+    },
+    "criminal_history": {
+      "value": ""
+    },
+    "preferred_pronouns": {
+      "value": ""
+    }
+  },
+  "behavioral_answers": {
+    "why_this_role": "",
+    "strengths": "",
+    "reason_for_leaving": "",
+    "career_goals": ""
+  },
+  "skipped": []
+}

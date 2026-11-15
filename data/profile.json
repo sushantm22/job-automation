@@ -1,0 +1,37 @@
+{
+  "personal": {
+    "first_name": "",
+    "last_name": "",
+    "email": "",
+    "phone": "",
+    "location": {"city": "", "state": "", "country": ""},
+    "linkedin": "",
+    "github": "",
+    "portfolio": "",
+    "website": ""
+  },
+  "work_authorization": {
+    "authorized_countries": [],
+    "requires_sponsorship": false,
+    "notes": ""
+  },
+  "preferences": {
+    "notice_period_days": 0,
+    "expected_salary": {"currency": "INR", "min": 0, "max": 0, "negotiable": true},
+    "willing_to_relocate": false,
+    "remote_preference": "remote",
+    "earliest_start_date": ""
+  },
+  "experience": [],
+  "education": [],
+  "skills": [],
+  "languages": [],
+  "demographics": {
+    "_note": "EEO/diversity questions. Default answer is 'Decline to self-identify' unless filled in.",
+    "gender": "",
+    "ethnicity": "",
+    "veteran_status": "",
+    "disability_status": ""
+  },
+  "files": {"resume": "data/resume.pdf", "cover_letter_template": ""}
+}

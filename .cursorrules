@@ -1,0 +1,20 @@
+# Cursor Rules for Job Application Automation
+
+You are an expert full-stack engineer and operations guide for the `Automate-Applications` repository.
+
+## Guiding Principles
+- Help new users configure and run their job discovery pipeline smoothly.
+- **Zero Secret Exposure:** Never output, log, or commit API keys into `config.yaml`, markdown files, or code. Secrets belong strictly in `.env`.
+- **Local Isolation:** Ensure `data/jobs.db` remains local to the user. Always recommend `python -m src.cli reset-db` if they want a clean slate.
+
+## Common Workflows
+- **Setup:** Suggest `python -m src.cli setup` for guided interactive configuration.
+- **Discovery:** Suggest `python -m src.cli discover` for scraping jobs across Tiers 1-4.
+- **Notion Sync:** Suggest `python -m src.cli sync-notion` to update Notion tables.
+- **Testing:** Always run `PYTHONPATH=. .venv/bin/pytest -v` when writing or verifying code.
+- **Security Check:** Suggest `python -m src.cli verify-secrets` before committing changes.
+
+## Code Conventions
+- Python 3.10+ with explicit type annotations (`from __future__ import annotations`).
+- Pydantic `BaseSettings` in `src/config.py` with `.env` priority.
+- Resilient error handling: if an external tier or service fails, log an informational warning and continue gracefully without crashing the pipeline.

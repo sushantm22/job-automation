@@ -1,0 +1,36 @@
+search:
+  keywords: ["SDET Lead", "Senior SDET", "AI SDET", "Senior Software Engineer in Test", "Software Engineer in Test", "SDET", "QA Automation Engineer", "QA Lead", "QA Manager"]
+  locations: ["India", "Remote", "Bengaluru", "Bangalore", "Hyderabad", "Pune", "Mumbai", "Gurgaon", "Gurugram", "Noida", "Delhi", "Chennai"]
+  exclude_keywords: ["intern", "unpaid"]
+  min_match_score: 70
+limits:
+  max_applications_per_day: 15
+  min_delay_seconds: 2
+  max_delay_seconds: 6
+mode:
+  default: review
+  headless: false
+llm:
+  max_calls_per_application: 6
+  temperature: 0.2
+tailoring:
+  enabled: true
+  cover_letter: false
+
+discovery:
+  tiers:
+    tier1_direct_apis: true
+    tier2_jobspy: true
+    tier3_apify: true      # Smart fallback: only fires if JobSpy returns 0 Naukri results
+    tier4_firecrawl: true   # Smart fallback: only fires for companies not covered by Tiers 1-2
+  apify_api_token: ""       # Configured in .env as APIFY_API_TOKEN
+  apify_actor_id: "valig/naukri-jobs-scraper"
+  firecrawl_api_key: ""     # Configured in .env as FIRECRAWL_API_KEY
+  firecrawl_daily_budget: 10  # Max portals per discovery run (1 credit each on free tier)
+
+notion:
+  enabled: true
+  api_token: ""             # Configured in .env as NOTION_API_KEY
+  database_id: ""           # Configured in .env as NOTION_DATABASE_ID
+  parent_page_id: ""        # Configured in .env as NOTION_PARENT_PAGE_ID
+  auto_sync_on_discover: true
