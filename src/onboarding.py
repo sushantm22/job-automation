@@ -174,23 +174,23 @@ def check_environment() -> dict[str, Any]:
 
 
 def read_env_file() -> dict[str, str]:
-    """Reads current key-value pairs from .env without exposing them."""
-    env_vars: dict[str, str] = {}
+    """
+    Reads current key-value pairs from .env without exposing them. Uses python-dotenv,
+    the same parser the app uses at runtime, so inline comments (`KEY=  # note`) and
+    quotes are handled identically instead of being read as values.
+    """
     if not ENV_PATH.exists():
-        return env_vars
-    for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        env_vars[k.strip()] = v.strip().strip("'\"")
-    return env_vars
+        return {}
+    from dotenv import dotenv_values
+
+    return {k: (v or "").strip() for k, v in dotenv_values(ENV_PATH).items() if k}
 
 
 def write_env_file(env_vars: dict[str, str]) -> None:
-    """Safely updates .env while maintaining existing keys."""
+    """Safely updates .env while maintaining existing keys. An empty value removes the key."""
     existing = read_env_file()
     existing.update(env_vars)
+    existing = {k: v for k, v in existing.items() if v not in (None, "")}
 
     lines = [
         "# ==============================================================================",
@@ -278,13 +278,12 @@ def run_interactive_onboarding() -> None:
 
     # Step 1: Role Configuration
     console.print("\n[bold green]Step 1: Target Roles & Locations[/bold green]")
-    config_data = {}
-    if CONFIG_PATH.exists():
-        with CONFIG_PATH.open("r", encoding="utf-8") as f:
-            config_data = yaml.safe_load(f) or {}
+    from .config import load_settings
+    from .onboard_steps import set_search
 
-    current_keywords = config_data.get("search", {}).get("keywords", ["SDET", "QA Automation Engineer"])
-    current_locations = config_data.get("search", {}).get("locations", ["India", "Remote", "Bengaluru"])
+    current_settings = load_settings()
+    current_keywords = current_settings.search_keywords
+    current_locations = current_settings.locations
 
     console.print(f"Current Target Roles: [cyan]{', '.join(current_keywords)}[/cyan]")
     console.print(f"Current Locations: [cyan]{', '.join(current_locations)}[/cyan]")
@@ -302,11 +301,10 @@ def run_interactive_onboarding() -> None:
         )
         new_locations = [l.strip() for l in new_locs_input.split(",") if l.strip()]
 
-        config_data.setdefault("search", {})["keywords"] = new_keywords
-        config_data.setdefault("search", {})["locations"] = new_locations
-        with CONFIG_PATH.open("w", encoding="utf-8") as f:
-            yaml.safe_dump(config_data, f, sort_keys=False)
-        console.print("[green]✔ Updated config.yaml successfully.[/green]")
+        set_search(roles=", ".join(new_keywords), locations=", ".join(new_locations))
+        console.print("[green]✔ Saved to config.local.yaml (your personal settings, gitignored).[/green]")
+    else:
+        set_search()  # keeping the defaults counts as a decision
 
     # Step 2: Candidate Profile
     console.print("\n[bold green]Step 2: Candidate Profile[/bold green]")

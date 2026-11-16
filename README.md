@@ -4,6 +4,13 @@ A semi-automated job application workflow for finding relevant roles, filtering 
 
 This project is designed to be local-first, deterministic, and safe by default. It does not require a live Gemini integration to be useful; the default LLM path uses a mock client for development and testing.
 
+## Get started in 1 minute
+
+Open this folder in an AI coding assistant that can run commands (Claude Code, Cursor, Codex, GitHub
+Copilot agent mode or Gemini CLI) and say **"Set me up"**. It installs everything, asks you a few
+questions in the chat, and runs your first job search. Prefer the terminal? See
+[QUICKSTART.md](QUICKSTART.md).
+
 ## What it does
 
 - discovers roles from company job boards

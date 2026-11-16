@@ -86,10 +86,26 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def local_config_path(config_path: Path = CONFIG_PATH) -> Path:
+    """Per-user overrides (roles, locations, ...) live next to config.yaml in a gitignored file."""
+    return config_path.with_name("config.local.yaml")
+
+
 def load_settings(config_path: Path = CONFIG_PATH) -> Settings:
     load_env_file()
 
-    raw = _read_yaml(config_path)
+    # config.yaml holds shared defaults; config.local.yaml (gitignored) holds this user's choices.
+    raw = _deep_merge(_read_yaml(config_path), _read_yaml(local_config_path(config_path)))
 
     search_cfg = raw.get("search", {})
     limits_cfg = raw.get("limits", {})

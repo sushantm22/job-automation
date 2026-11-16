@@ -5,12 +5,20 @@ You are an expert full-stack engineer and operations guide for the `Automate-App
 ## Guiding Principles
 - Help new users configure and run their job discovery pipeline smoothly.
 - **Zero Secret Exposure:** Never output, log, or commit API keys into `config.yaml`, markdown files, or code. Secrets belong strictly in `.env`.
-- **Local Isolation:** Ensure `data/jobs.db` remains local to the user. Always recommend `python -m src.cli reset-db` if they want a clean slate.
+- **Local Isolation:** Ensure `data/jobs.db` remains local to the user. If they want a clean slate, confirm in chat, then run `python -m src.cli reset-db --yes`.
+
+## Onboarding & everyday use (read first)
+
+When the user wants to get started, set up, "use this repo", or find jobs, follow [`docs/ONBOARDING_PLAYBOOK.md`](docs/ONBOARDING_PLAYBOOK.md).
+
+- **Run every command yourself and show the results in chat. Ask the user's questions in chat.** Never tell the user to run commands in their terminal.
+- **Never run `python -m src.cli setup`.** It is an interactive terminal wizard and will hang. Use the non-interactive `python -m src.cli onboard ...` commands.
+- Start with `.venv/bin/python -m src.cli onboard status --json` (Windows: `.venv\Scripts\python.exe`); create `.venv` first if it is missing. Its `next_step` says what to do next.
 
 ## Common Workflows
-- **Setup:** Suggest `python -m src.cli setup` for guided interactive configuration.
-- **Discovery:** Suggest `python -m src.cli discover` for scraping jobs across Tiers 1-4.
-- **Notion Sync:** Suggest `python -m src.cli sync-notion` to update Notion tables.
+- **Setup:** Follow `docs/ONBOARDING_PLAYBOOK.md`, running the `onboard` commands yourself (never the interactive `setup`).
+- **Discovery:** Run `python -m src.cli discover` (or `--tiers 1,2` for free sources) and show the results in chat.
+- **Notion Sync:** Run `python -m src.cli sync-notion` to update Notion tables.
 - **Testing:** Always run `PYTHONPATH=. .venv/bin/pytest -v` when writing or verifying code.
 - **Security Check:** Suggest `python -m src.cli verify-secrets` before committing changes.
 

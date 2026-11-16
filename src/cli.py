@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import List
 
 import typer
 import yaml
@@ -52,6 +53,7 @@ def discover(
 
     console = Console()
     settings = load_settings()
+    init_db()  # idempotent: a new user can run discover without running init first
     engine = JobDiscoveryEngine(settings=settings)
 
     # Parse requested tiers
@@ -96,6 +98,9 @@ def discover(
     table.add_row("[dim]Duplicates Prevented[/dim]", "Already tracked in SQLite", f"[dim]{result['duplicates_prevented']}[/dim]")
     table.add_row("[bold magenta]Notion Synced[/bold magenta]", "Live Opportunities in Notion Table", f"[bold magenta]{result.get('notion_synced', 0)}[/bold magenta]")
     console.print(table)
+
+    from .onboard_steps import mark_step
+    mark_step("first_discovery")
 
     if result.get("registry_seeded", 0) > 0:
         console.print(f"🌱 [bold green]First run:[/bold green] loaded {result['registry_seeded']} company boards from companies.yaml into your registry.")
@@ -392,6 +397,109 @@ def verify_secrets_cmd() -> None:
         raise typer.Exit(code=1)
     else:
         console.print("[bold green]✔ Security Audit Passed:[/bold green] Zero API keys or secrets detected in git-tracked files.")
+
+
+onboard_app = typer.Typer(
+    add_completion=False,
+    help="Non-interactive onboarding steps. Built for AI assistants: each command takes its answers as "
+    "arguments and never prompts. See docs/ONBOARDING_PLAYBOOK.md.",
+)
+app.add_typer(onboard_app, name="onboard")
+
+
+def _emit(data: dict, as_json: bool, human: str) -> None:
+    import json as _json
+    typer.echo(_json.dumps(data, indent=2) if as_json else human)
+
+
+@onboard_app.command("status")
+def onboard_status(as_json: bool = typer.Option(False, "--json", help="Machine-readable output")) -> None:
+    """Show what is set up, what is missing, and the next step."""
+    from .onboard_steps import STEP_ORDER, get_status
+
+    status = get_status()
+    lines = [f"Database: {status['database']}  |  Company boards: {status['registry_boards']}"]
+    for step_id in STEP_ORDER:
+        info = status["steps"][step_id]
+        mark = "✔" if info["done"] else "✗"
+        extra = " (skipped)" if info.get("skipped") else (" (optional)" if info.get("optional") and not info["done"] else "")
+        lines.append(f"  {mark} {step_id}{extra}")
+    lines.append("Onboarding complete." if status["complete"] else f"Next step: {status['next_step']}")
+    _emit(status, as_json, "\n".join(lines))
+
+
+@onboard_app.command("set-search")
+def onboard_set_search(
+    roles: str = typer.Option(None, help="Comma-separated job titles, e.g. 'SDET, QA Lead'"),
+    locations: str = typer.Option(None, help="Comma-separated locations, e.g. 'India, Remote, Pune'"),
+    exclude: str = typer.Option(None, help="Comma-separated words that reject a job, e.g. 'intern, unpaid'"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Save target roles/locations to config.local.yaml (gitignored). Omit all options to keep the defaults."""
+    from .onboard_steps import set_search
+
+    try:
+        res = set_search(roles=roles, locations=locations, exclude=exclude)
+    except ValueError as err:
+        typer.echo(f"Error: {err}", err=True)
+        raise typer.Exit(code=1)
+    _emit(res, as_json, f"Search saved.\n  Roles: {', '.join(res['roles'])}\n  Locations: {', '.join(res['locations'])}\n  Exclude: {', '.join(res['exclude'])}")
+
+
+@onboard_app.command("set-profile")
+def onboard_set_profile(
+    fields: List[str] = typer.Argument(..., help="field=value pairs, e.g. first_name=Asha city=Pune resume=~/cv.pdf"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Fill data/profile.json (gitignored). A resume path outside the project is copied into data/."""
+    from .onboard_steps import PROFILE_FIELDS, set_profile
+
+    updates: dict[str, str] = {}
+    for item in fields:
+        if "=" not in item:
+            typer.echo(f"Error: '{item}' is not field=value. Fields: {', '.join(PROFILE_FIELDS)}", err=True)
+            raise typer.Exit(code=1)
+        key, value = item.split("=", 1)
+        updates[key.strip()] = value
+    try:
+        res = set_profile(updates)
+    except ValueError as err:
+        typer.echo(f"Error: {err}", err=True)
+        raise typer.Exit(code=1)
+    human = "Profile saved." + (f"\n  Still missing: {', '.join(res['missing'])}" if res["missing"] else "\n  Basic profile complete.")
+    _emit(res, as_json, human)
+
+
+@onboard_app.command("set-key")
+def onboard_set_key(
+    name: str = typer.Argument(..., help="NOTION_API_KEY | APIFY_API_TOKEN | FIRECRAWL_API_KEY | GEMINI_API_KEY"),
+    verify: bool = typer.Option(True, help="Check the key online where possible"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Save a secret to .env. The value is read from stdin so it never appears in the command line."""
+    import sys
+    from .onboard_steps import set_key
+
+    try:
+        res = set_key(name.strip().upper(), sys.stdin.read(), verify=verify)
+    except ValueError as err:
+        typer.echo(f"Error: {err}", err=True)
+        raise typer.Exit(code=1)
+    check = {True: "verified online", False: "saved, but the online check FAILED (wrong or expired key?)", None: "saved (no online check for this key)"}[res["verified"]]
+    _emit(res, as_json, f"{res['saved']}: {check}")
+
+
+@onboard_app.command("skip")
+def onboard_skip(step: str = typer.Argument(..., help="api_keys | notion | profile")) -> None:
+    """Mark an optional step as skipped so status moves on."""
+    from .onboard_steps import skip_step
+
+    try:
+        skip_step(step)
+    except ValueError as err:
+        typer.echo(f"Error: {err}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"Skipped '{step}'. You can come back to it any time.")
 
 
 if __name__ == "__main__":
