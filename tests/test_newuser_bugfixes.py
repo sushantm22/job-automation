@@ -157,7 +157,8 @@ def test_tier1_deactivates_board_on_404_but_not_on_other_errors(tmp_path: Path):
     def fake_fetch(slug):
         raise _http_error(404) if slug == "gone" else _http_error(503)
 
-    with patch("src.discovery.engine.fetch_ashby_jobs", side_effect=fake_fetch):
+    with patch.object(engine.registry, "ensure_seeded", return_value=0), \
+         patch("src.discovery.engine.fetch_ashby_jobs", side_effect=fake_fetch):
         engine.run_tier1_direct_apis(company_limit=10)
 
     rows = {r["slug"]: r for r in list_companies(status=None, db_path=db_file)}
@@ -227,7 +228,8 @@ def test_offline_tier1_run_is_flagged_and_does_not_stamp_boards(tmp_path: Path):
     before = {r["slug"]: r["last_checked_at"] for r in list_companies(db_path=db_file)}
     engine = JobDiscoveryEngine(settings=Settings(), db_path=db_file)
 
-    with patch("src.discovery.engine.fetch_greenhouse_jobs", side_effect=_dns_failure()):
+    with patch.object(engine.registry, "ensure_seeded", return_value=0), \
+         patch("src.discovery.engine.fetch_greenhouse_jobs", side_effect=_dns_failure()):
         engine.run_tier1_direct_apis(company_limit=10)
 
     assert engine.network_unavailable is True
@@ -235,7 +237,8 @@ def test_offline_tier1_run_is_flagged_and_does_not_stamp_boards(tmp_path: Path):
     assert after == before  # nothing was searched, so nothing is marked as checked
 
     # One reachable board means the network works: not flagged.
-    with patch("src.discovery.engine.fetch_greenhouse_jobs", side_effect=[_dns_failure(), []]):
+    with patch.object(engine.registry, "ensure_seeded", return_value=0), \
+         patch("src.discovery.engine.fetch_greenhouse_jobs", side_effect=[_dns_failure(), []]):
         engine.run_tier1_direct_apis(company_limit=10)
     assert engine.network_unavailable is False
 

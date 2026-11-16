@@ -42,7 +42,7 @@ def discover(
 ) -> None:
     """
     Executes the 4-Tier Zero-Human-Intervention Job Discovery Engine:
-      • Tier 1: Direct ATS APIs (Greenhouse / Lever / Ashby)
+      • Tier 1: Direct ATS APIs (Greenhouse / Lever / Ashby / SmartRecruiters)
       • Tier 2: JobSpy Aggregators (LinkedIn / Indeed / Glassdoor)
       • Tier 3: Apify Cloud Anti-Bot (Naukri & Protected Sites)
       • Tier 4: Firecrawl Enterprise Portals (Google / Apple / Uber / Netflix)
@@ -83,8 +83,8 @@ def discover(
     table.add_column("Jobs Found", style="green", justify="right")
 
     tier_map = {
-        "tier1_direct_apis": ("Tier 1", "Direct APIs (Greenhouse / Lever / Ashby)"),
-        "tier2_jobspy": ("Tier 2", "JobSpy (LinkedIn / Indeed / Glassdoor / Google / Naukri)"),
+        "tier1_direct_apis": ("Tier 1", "Direct APIs (Greenhouse / Lever / Ashby / SmartRecruiters)"),
+        "tier2_jobspy": ("Tier 2", "JobSpy (LinkedIn / Indeed / Glassdoor / Naukri)"),
         "tier3_apify": ("Tier 3", "Apify (Naukri & Protected Aggregators)"),
         "tier4_firecrawl": ("Tier 4", "Firecrawl (Google / Apple / Enterprise Portals)"),
     }

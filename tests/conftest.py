@@ -24,3 +24,18 @@ def _ignore_developers_local_config(tmp_path_factory, monkeypatch):
         return original(config_path)
 
     monkeypatch.setattr(src.config, "local_config_path", local_config_path)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_network(monkeypatch):
+    """
+    Tests must never hit real job boards or APIs. Any urllib request that a test hasn't faked
+    raises immediately, so an accidental live call fails loudly instead of passing slowly.
+    Tests that fake responses patch urlopen themselves, which takes precedence over this.
+    """
+    import urllib.request
+
+    def blocked(*args, **kwargs):
+        raise RuntimeError("Real network access is disabled in tests; patch urlopen or the fetcher.")
+
+    monkeypatch.setattr(urllib.request, "urlopen", blocked)

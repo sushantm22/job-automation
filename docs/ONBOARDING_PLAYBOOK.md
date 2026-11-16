@@ -86,7 +86,7 @@ Choices are saved to `config.local.yaml` (gitignored). `config.yaml` is never mo
 ## Step `api_keys`: Optional extra sources
 
 First explain that **no keys are needed to start**. The free sources (company job boards and
-LinkedIn/Indeed/Glassdoor/Google/Naukri via JobSpy) already work. Then offer the extras:
+LinkedIn/Indeed/Glassdoor/Naukri via JobSpy) already work. Then offer the extras:
 
 | Key | What it adds | Where to get it (free tier) |
 |---|---|---|
@@ -200,7 +200,6 @@ they can simply **ask you** from now on:
 | Notion `object_not_found` / 404 | The parent page isn't shared with the integration (Notion step 2). |
 | "Couldn't reach Notion", `nodename nor servname provided`, `Name or service not known` | A network/DNS problem; the request never reached Notion, so the user's setup is fine. The command already retries briefly. Run it again. If your tool sandboxes commands, run it with network access allowed (or ask the user to approve that). Never send the user back to Notion's settings for this. |
 | Firecrawl "read operation timed out" | That career site was slow; it's skipped this run and retried next time. |
-| `ERROR:jobspy.google:no job data returned` | Google Jobs blocked or changed its page. Harmless; the other sources still work. |
 
 ## Chat tools that can't run commands (ChatGPT/Claude/Gemini on the web)
 

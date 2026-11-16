@@ -83,7 +83,9 @@ def fetch_jobspy_jobs(
     if not keywords_list:
         keywords_list = ["software engineer"]
 
-    target_sites = sites or ["naukri", "linkedin", "indeed", "glassdoor", "google"]
+    # Google Jobs is left out: since Jan 2025 Google Search only serves results to clients that run
+    # JavaScript, so JobSpy's plain-HTTP Google scraper always returns "no job data returned".
+    target_sites = sites or ["naukri", "linkedin", "indeed", "glassdoor"]
     all_records: list[JobRecord] = []
     seen_urls: set[str] = set()
 

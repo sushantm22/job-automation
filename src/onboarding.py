@@ -443,8 +443,8 @@ def run_interactive_onboarding() -> None:
     updated_env = read_env_file()
     profile_missing = missing_profile_fields(load_profile())
     table.add_row("Candidate Profile (data/profile.json)", "[green]Complete[/green]" if not profile_missing else f"[yellow]{len(profile_missing)} field(s) missing[/yellow]")
-    table.add_row("Tier 1: Direct APIs (Greenhouse/Lever/Ashby)", f"[bold green]Active: {active_boards} company boards (Free)[/bold green]" if active_boards else "[yellow]No company boards in registry[/yellow]")
-    table.add_row("Tier 2: JobSpy (LinkedIn/Indeed/Glassdoor/Google/Naukri)", "[bold green]Active (Free, No Key Required)[/bold green]")
+    table.add_row("Tier 1: Direct APIs (Greenhouse/Lever/Ashby/SmartRecruiters)", f"[bold green]Active: {active_boards} company boards (Free)[/bold green]" if active_boards else "[yellow]No company boards in registry[/yellow]")
+    table.add_row("Tier 2: JobSpy (LinkedIn/Indeed/Glassdoor/Naukri)", "[bold green]Active (Free, No Key Required)[/bold green]")
     table.add_row("Tier 3: Apify Naukri (fallback)", "[green]Configured[/green]" if updated_env.get("APIFY_API_TOKEN") else "[dim]Disabled (Optional)[/dim]")
     table.add_row("Tier 4: Firecrawl Enterprise Portals", "[green]Configured[/green]" if updated_env.get("FIRECRAWL_API_KEY") else "[dim]Disabled (Optional)[/dim]")
     if updated_env.get("NOTION_API_KEY") and updated_env.get("NOTION_DATABASE_ID"):

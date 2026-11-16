@@ -141,6 +141,21 @@ greenhouse:
 lever:
 - educative
 - metabase
+smartrecruiters:
+- AveryDennison
+- BoschGroup
+- Continental
+- Endava
+- Experian
+- Freshworks
+- Grab
+- NielsenIQ
+- SGS
+- ServiceNow
+- Swiggy
+- Ubisoft2
+- Wabtec
+- WesternDigital
 enterprise_portals:
 - name: Google
   url: https://www.google.com/about/careers/applications/jobs/results?q=software+engineer+india

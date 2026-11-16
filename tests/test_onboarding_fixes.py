@@ -58,14 +58,15 @@ def test_ensure_seeded_loads_yaml_into_empty_registry(tmp_path: Path):
     assert registry.ensure_seeded(tmp_path / "companies.yaml") == 0
 
 
-def test_ensure_seeded_does_not_resurrect_pruned_registry(tmp_path: Path):
+def test_ensure_seeded_never_resurrects_pruned_boards_but_adds_new_ones(tmp_path: Path):
     db_file = tmp_path / "jobs.db"
     init_db(db_file)
-    upsert_company("greenhouse", "defunct", status="inactive", db_path=db_file)
+    upsert_company("greenhouse", "stripe", status="inactive", db_path=db_file)  # pruned earlier
 
     registry = CompanyRegistry(db_path=db_file)
-    assert registry.ensure_seeded(_write_yaml(tmp_path / "companies.yaml")) == 0
-    assert registry.get_slugs_by_platform() == {}
+    # companies.yaml lists stripe (pruned) and plivo (new to this user).
+    assert registry.ensure_seeded(_write_yaml(tmp_path / "companies.yaml")) == 1
+    assert registry.get_slugs_by_platform() == {"lever": ["plivo"]}
 
 
 def test_fresh_database_tier1_polls_boards_from_companies_yaml(tmp_path: Path):
@@ -75,11 +76,12 @@ def test_fresh_database_tier1_polls_boards_from_companies_yaml(tmp_path: Path):
 
     with patch("src.discovery.engine.fetch_greenhouse_jobs", return_value=[]) as gh, \
          patch("src.discovery.engine.fetch_lever_jobs", return_value=[]) as lv, \
-         patch("src.discovery.engine.fetch_ashby_jobs", return_value=[]) as ab:
+         patch("src.discovery.engine.fetch_ashby_jobs", return_value=[]) as ab, \
+         patch("src.discovery.engine.fetch_smartrecruiters_jobs", return_value=[]) as sr:
         engine.run_tier1_direct_apis(company_limit=5)
 
     assert engine.registry_seeded > 0
-    assert gh.call_count + lv.call_count + ab.call_count == 5
+    assert gh.call_count + lv.call_count + ab.call_count + sr.call_count == 5
 
 
 # --- Profile ------------------------------------------------------------------------

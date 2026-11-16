@@ -157,17 +157,26 @@ class CompanyRegistry:
 
     def ensure_seeded(self, yaml_path: Path | str = DEFAULT_YAML_PATH) -> int:
         """
-        First-run bootstrap: if the registry has never held any company (fresh clone or
-        new DATABASE_PATH), import the curated boards from companies.yaml so Tier 1 has
-        something to poll. Returns the number imported (0 if the registry already had rows,
-        including ones pruned to inactive, which must stay pruned).
+        Adds every company listed in companies.yaml that this registry has never seen: all of them
+        on a fresh clone / new DATABASE_PATH, and newly curated entries (e.g. a new platform) for
+        existing users. Companies already in the registry are left untouched, so boards pruned to
+        inactive stay pruned. Returns the number added.
         """
-        if self.get_stats()["total_companies"] > 0:
-            return 0
-        imported = self.sync_from_yaml(yaml_path)
-        if imported:
-            logger.info("Registry was empty: imported %d companies from %s.", imported, yaml_path)
-        return imported
+        data = _load_yaml_dict(Path(yaml_path))
+        known = {(r["platform"], r["slug"].lower()) for r in list_companies(status=None, db_path=self.db_path)}
+        added = 0
+        for platform, slugs in data.items():
+            if platform not in ATS_PLATFORM_KEYS or not isinstance(slugs, list):
+                continue
+            for slug in slugs:
+                if not isinstance(slug, str) or not slug.strip() or (platform, slug.strip().lower()) in known:
+                    continue
+                if upsert_company(platform=platform, slug=slug.strip(), status="active",
+                                  discovered_via="yaml_sync", db_path=self.db_path):
+                    added += 1
+        if added:
+            logger.info("Added %d companies from %s to the registry.", added, yaml_path)
+        return added
 
     def get_slugs_by_platform(
         self,

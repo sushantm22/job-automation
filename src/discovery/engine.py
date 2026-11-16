@@ -15,6 +15,7 @@ from .greenhouse import fetch_greenhouse_jobs
 from .jobspy_adapter import fetch_jobspy_jobs
 from .lever import fetch_lever_jobs
 from .registry import CompanyRegistry
+from .smartrecruiters import fetch_smartrecruiters_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ class JobDiscoveryEngine:
     """
     Centralized 4-Tier Zero-Human-Intervention Job Discovery Engine.
 
-    Tier 1: Direct ATS APIs (Greenhouse / Lever / Ashby)
+    Tier 1: Direct ATS APIs (Greenhouse / Lever / Ashby / SmartRecruiters)
     Tier 2: JobSpy Aggregators (LinkedIn / Indeed / Glassdoor)
     Tier 3: Apify Cloud Anti-Bot (Naukri & Protected Aggregators)
     Tier 4: Firecrawl Enterprise Portals (Google / Apple / Uber / Netflix)
@@ -38,7 +39,8 @@ class JobDiscoveryEngine:
 
     def run_tier1_direct_apis(self, company_limit: int | None = 50) -> list[JobRecord]:
         """
-        Tier 1: High-speed, 100% free direct API polling for tracked ATS boards.
+        Tier 1: High-speed, 100% free direct API polling for tracked ATS boards
+        (Greenhouse, Lever, Ashby, SmartRecruiters).
         Polls the least-recently-checked boards first so `company_limit` rotates through the registry.
         """
         self.registry_seeded = self.registry.ensure_seeded()
@@ -55,6 +57,8 @@ class JobDiscoveryEngine:
                         jobs = fetch_lever_jobs(slug)
                     elif platform == "ashby":
                         jobs = fetch_ashby_jobs(slug)
+                    elif platform == "smartrecruiters":
+                        jobs = fetch_smartrecruiters_jobs(slug)
                     else:
                         continue
 

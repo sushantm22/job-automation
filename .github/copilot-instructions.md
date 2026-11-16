@@ -13,8 +13,8 @@ When the user wants to get started, set up, "use this repo", or find jobs, follo
 
 ## Core Architecture
 1. **4-Tier Job Discovery Engine (`src/discovery/`):**
-   - **Tier 1:** Direct ATS APIs (Greenhouse, Lever, Ashby) across 140+ tech companies. Free, sub-200ms, 0 API keys.
-   - **Tier 2:** JobSpy multi-board aggregator (LinkedIn, Indeed, Glassdoor, Google Jobs, Naukri) for India & Remote. Free, 0 API keys.
+   - **Tier 1:** Direct ATS APIs (Greenhouse, Lever, Ashby, SmartRecruiters) across 150+ companies. Free, sub-200ms, 0 API keys.
+   - **Tier 2:** JobSpy multi-board aggregator (LinkedIn, Indeed, Glassdoor, Naukri) for India & Remote. Free, 0 API keys.
    - **Tier 3:** Apify Cloud actor (`valig/naukri-jobs-scraper`) for Naukri anti-bot/proxy solving; fallback only when JobSpy returns 0 Naukri jobs. Optional `APIFY_API_TOKEN`.
    - **Tier 4:** Firecrawl crawler for ~20 enterprise career portals (budget-capped). Optional `FIRECRAWL_API_KEY`.
 2. **Local SQLite Ledger (`src/db.py`):**
