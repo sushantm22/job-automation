@@ -70,3 +70,18 @@ def test_hard_filter_exclude_matches_whole_words_only():
     filtered = hard_filter_jobs(jobs, keywords=["SDET"], locations=["India"], exclude=["intern", "unpaid"])
 
     assert [j["title"] for j in filtered] == ["Senior SDET"]
+
+
+def test_hard_filter_keeps_user_roles_on_unrelated_list_and_skips_qa_fallback():
+    jobs = [
+        {"title": "Area Sales Manager", "location": "Pune, India", "description": "Drive regional sales."},
+        {"title": "Senior Sales Manager", "location": "Remote", "description": "Own enterprise accounts."},
+        {"title": "Account Executive", "location": "Mumbai, India", "description": "Close deals."},
+        {"title": "QA Automation Engineer", "location": "Bengaluru, India", "description": "Selenium tests."},
+    ]
+
+    filtered = hard_filter_jobs(
+        jobs, keywords=["Senior Sales Manager", "Area Sales Manager"], locations=["India", "Remote"], exclude=["intern"]
+    )
+
+    assert [j["title"] for j in filtered] == ["Area Sales Manager", "Senior Sales Manager"]

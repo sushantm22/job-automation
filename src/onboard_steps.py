@@ -142,7 +142,10 @@ def get_status(config_path: Path | None = None) -> dict[str, Any]:
             info["skipped"] = True
 
     next_step = next((s for s in STEP_ORDER if not steps[s]["done"]), None)
+    from . import onboarding
+
     return {
+        "env_file_exists": onboarding.ENV_PATH.exists(),
         "database": str(DB_PATH),
         "registry_boards": _count_rows(DB_PATH, "company_registry", "WHERE status = 'active'"),
         "steps": steps,
@@ -234,6 +237,47 @@ def set_key(name: str, value: str, verify: bool = True) -> dict[str, Any]:
     checker = SECRET_KEYS[name]
     verified = checker(value) if (verify and checker) else None
     return {"saved": name, "verified": verified}
+
+
+def prepare() -> dict[str, Any]:
+    """
+    Step 0, run before asking the user anything: make sure .env exists (from .env.example) so the
+    user can add keys to it themselves, create the database, and load the company registry.
+    Safe to run repeatedly.
+    """
+    from . import onboarding
+    from .db import DB_PATH, init_db
+    from .discovery.registry import CompanyRegistry
+
+    env_created = ensure_file_from_example(onboarding.ENV_PATH, onboarding.ENV_EXAMPLE_PATH)
+    if not onboarding.ENV_PATH.exists():  # no template available: still give the user a file to edit
+        onboarding.ENV_PATH.write_text("# Local secrets (gitignored)\n", encoding="utf-8")
+        env_created = True
+    db_path = init_db(DB_PATH)
+    registry = CompanyRegistry(db_path=db_path)
+    seeded = registry.ensure_seeded()
+    return {
+        "env_file": str(onboarding.ENV_PATH),
+        "env_created": env_created,
+        "database": str(db_path),
+        "registry_seeded": seeded,
+        "registry_boards": registry.get_stats().get("active_companies", 0),
+    }
+
+
+def check_keys() -> dict[str, str]:
+    """Checks every known key in .env online where possible. Returns name -> status; never returns values."""
+    env = read_env_file()
+    results: dict[str, str] = {}
+    for name, checker in SECRET_KEYS.items():
+        value = (env.get(name) or "").strip()
+        if not value:
+            results[name] = "missing"
+        elif checker is None:
+            results[name] = "set (no online check)"
+        else:
+            results[name] = "verified" if checker(value) else "failed"
+    return results
 
 
 def skip_step(step: str) -> None:

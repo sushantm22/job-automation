@@ -45,6 +45,30 @@ def _exclude_regex(exclude: list[str]) -> re.Pattern[str] | None:
     return re.compile(rf"(?<!\w)(?:{alternatives})(?:ships?)?(?!\w)", re.IGNORECASE)
 
 
+# Core QA/SDET title tokens. Used as a title fallback only when the user's own roles are QA roles.
+QA_TITLE_REGEX = re.compile(
+    "|".join([
+        r"\bsdet\b",
+        r"\bqa\b",
+        r"\bquality\s+(engineering|engineer|analyst)\b",
+        r"\bsoftware\s+(engineer|developer)\s+in\s+test\b",
+        r"\b(test\s+automation|automation\s+test|automation\s+engineer)\b",
+        r"\b(test\s+lead|qa\s+lead|qa\s+manager)\b",
+    ]),
+    re.IGNORECASE,
+)
+
+
+def _title_matches_roles(title_lower: str, keyword_tokens: list[str]) -> bool:
+    for kw in keyword_tokens:
+        if len(kw) <= 4:
+            if re.search(r"\b" + re.escape(kw) + r"\b", title_lower):
+                return True
+        elif kw in title_lower:
+            return True
+    return False
+
+
 def hard_filter_jobs(
     jobs: list[dict[str, Any]],
     keywords: list[str],
@@ -55,11 +79,12 @@ def hard_filter_jobs(
     location_tokens = [item.lower().strip() for item in locations if item.strip()]
     exclude_regex = _exclude_regex(exclude)
 
-    # Unrelated corporate non-technical/non-QA titles to reject unless explicit QA/SDET match
+    # Unrelated corporate non-technical/non-QA titles, rejected unless the title matches a user role
     unrelated_title_patterns = [
         r"\b(account executive|sales director|sales manager|gtm recruiter|talent sourcer|head of marketing|marketing manager|accounting manager|delivery solutions architect|solutions architect)\b",
     ]
     unrelated_title_regex = re.compile("|".join(unrelated_title_patterns), re.IGNORECASE)
+    targets_qa = any(QA_TITLE_REGEX.search(kw) for kw in keyword_tokens)
 
     filtered: list[dict[str, Any]] = []
     for job in jobs:
@@ -74,35 +99,21 @@ def hard_filter_jobs(
         if exclude_regex and exclude_regex.search(text_blob):
             continue
 
-        # 2. Reject obvious unrelated titles (e.g. Sales, Accounting, Recruiter)
-        if unrelated_title_regex.search(title_lower):
+        # 2. Target role match on the title (strong match). A title naming one of the
+        # user's own roles is always kept, even if it is on the unrelated list below.
+        title_match = _title_matches_roles(title_lower, keyword_tokens)
+
+        # 3. Reject obvious unrelated titles (e.g. Sales, Accounting, Recruiter) unless
+        # the user explicitly targets that role.
+        if not title_match and unrelated_title_regex.search(title_lower):
             continue
 
-        # 3. Target Role Match (Title or Description match)
-        role_match = False
+        # 4. Target Role Match (Title or Description match)
+        role_match = title_match
         if keyword_tokens:
-            # Check title first (strong match)
-            for kw in keyword_tokens:
-                if len(kw) <= 4:
-                    if re.search(r"\b" + re.escape(kw) + r"\b", title_lower):
-                        role_match = True
-                        break
-                elif kw in title_lower:
-                    role_match = True
-                    break
-
-            # Fallback to check core QA tokens in title
-            if not role_match:
-                qa_title_tokens = [
-                    r"\bsdet\b",
-                    r"\bqa\b",
-                    r"\bquality\s+(engineering|engineer|analyst)\b",
-                    r"\bsoftware\s+(engineer|developer)\s+in\s+test\b",
-                    r"\b(test\s+automation|automation\s+test|automation\s+engineer)\b",
-                    r"\b(test\s+lead|qa\s+lead|qa\s+manager)\b",
-                ]
-                if any(re.search(pat, title_lower) for pat in qa_title_tokens):
-                    role_match = True
+            # Fallback to core QA tokens in the title, only when the user targets QA roles
+            if not role_match and targets_qa and QA_TITLE_REGEX.search(title_lower):
+                role_match = True
 
             # If still not matched, allow description match ONLY if title is engineering/technical
             if not role_match and desc_str:
@@ -118,7 +129,7 @@ def hard_filter_jobs(
             if not role_match:
                 continue
 
-        # 4. Strict Location Match (Must be India or Remote, and NOT foreign-only)
+        # 5. Strict Location Match (Must be India or Remote, and NOT foreign-only)
         if location_tokens:
             # If location has foreign country/city and no mention of India, reject
             if FOREIGN_LOCATION_REGEX.search(loc_lower) and not INDIA_LOCATION_REGEX.search(loc_lower):

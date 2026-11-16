@@ -12,7 +12,8 @@ Core rules, in short:
 - Run every command yourself with Bash and show the results in chat. Never tell the user to run commands.
 - Ask the playbook's questions in chat, one topic at a time; use AskUserQuestion when the choices are clear-cut.
 - Never run `python -m src.cli setup` (interactive; it hangs). Use `.venv/bin/python -m src.cli onboard ...`.
+- Right after installing dependencies run `.venv/bin/python -m src.cli onboard prepare` (creates `.env`, database, company list).
 - After each step run `.venv/bin/python -m src.cli onboard status --json` and continue with `next_step`.
 - Secrets go to `.env` via stdin (`printf '%s' '<KEY>' | .venv/bin/python -m src.cli onboard set-key NAME`)
-  or the user adds them to `.env` themselves. Never echo a key or print `.env`.
+  or the user adds them to `.env` themselves, after which you run `onboard check-keys`. Never echo a key or print `.env`.
 - Give `discover` a long timeout (around 10 minutes), since tier 2 scrapes several job sites.

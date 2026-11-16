@@ -34,6 +34,9 @@ Use it whenever the user says anything like "set me up", "start using this repo"
    Never write keys or personal details into tracked files such as `config.yaml` or docs.
 8. **Be honest about failures.** If a command fails, show the important part of the error, explain it
    in plain words, and fix it or offer the next option.
+9. **Don't silently change the project's code.** If you find a bug in `src/` while onboarding, explain
+   it and ask before editing. Any change stays uncommitted in the user's copy and can clash with their
+   next `git pull`, so tell them which files you changed.
 
 ---
 
@@ -47,7 +50,10 @@ Tell the user you are installing things, which takes 1–3 minutes. Then:
      confirm, then continue.
 2. If `.venv` does not exist: `python3 -m venv .venv` (Windows: `py -3 -m venv .venv`).
 3. Install dependencies: `PY -m pip install -r requirements.txt`. Pip cache warnings are harmless.
-4. Run `PY -m src.cli onboard status --json` and greet the user with a short plan, for example:
+4. Run `PY -m src.cli onboard prepare`. It creates `.env` from `.env.example`, so the file exists
+   before you ever ask for a key, and also creates the database and loads the company list. It's safe
+   to re-run.
+5. Run `PY -m src.cli onboard status --json` and greet the user with a short plan, for example:
    > "You're set up to search for jobs. I'll ask about the roles you want, optional extras like Notion
    > tracking, then run your first search. Takes about 5 minutes."
 
@@ -89,8 +95,10 @@ Do **not** offer `GEMINI_API_KEY`. Nothing uses it yet.
   this tool uses. Then save it with the value on stdin, so it is never written as a command argument:
   `printf '%s' '<KEY>' | PY -m src.cli onboard set-key NOTION_API_KEY`
   (Windows PowerShell: `'<KEY>' | PY -m src.cli onboard set-key NOTION_API_KEY`)
-- **Add it themselves.** They open `.env` in the project folder and add a line such as
-  `NOTION_API_KEY=ntn_…`, then say "done". You can confirm with `onboard status` without seeing the value.
+- **Add it themselves.** `.env` already exists in the project folder (step 0 created it; if it's
+  missing, run `onboard prepare` again). They open it, put the key after the matching `=` (for example
+  `NOTION_API_KEY=ntn_…`), save, and say "done". Then run `PY -m src.cli onboard check-keys`. It tests
+  each key online and prints only `verified`, `failed`, `missing` or `set (no online check)`, never the value.
 
 The command reports `verified online`, `online check FAILED` or `no online check`. If the check fails,
 say so and ask for the key again, because it was probably copied incompletely.
@@ -111,7 +119,10 @@ If the user wants no extras: `PY -m src.cli onboard skip api_keys`
 - Then run `PY -m src.cli init-notion-db --parent-page-id "<page link>"`
   This creates the table and saves `NOTION_DATABASE_ID` to `.env` automatically. Share the table URL
   it prints.
-- If it fails with 404 / "object not found", the page was not connected to the integration (step 2).
+- If it fails, the command prints Notion's own error message. When it also shows the
+  "Connections" tip (404, 401 or 403), the page wasn't shared with the integration, so repeat step 2.
+  Any other message (for example a 400 `validation_error`) is a problem in the request, not the user's
+  setup. Explain it and don't ask them to re-share the page.
 
 ---
 
@@ -175,9 +186,11 @@ they can simply **ask you** from now on:
 |---|---|
 | `pip install` fails building numpy/pandas | Python is too new for a pinned wheel. Recreate the venv with Python 3.12/3.13 (`python3.12 -m venv .venv`). |
 | `ModuleNotFoundError: src` | Run commands from the project root folder. |
-| Tier 1 shows `Error polling <company>: HTTP Error 404` | That company's job board no longer exists. Harmless; `PY -m src.cli validate-companies` prunes dead boards. |
+| Tier 1 shows `Board '<company>' no longer exists (404)` | That company left its job-board provider. It's removed from the user's registry automatically. |
 | Tier 2 returns 0 or errors | Job sites rate-limit scrapers. Try again later; tier 1 still works. |
-| Notion `object_not_found` | The parent page isn't shared with the integration (Notion step 2). |
+| Notion `object_not_found` / 404 | The parent page isn't shared with the integration (Notion step 2). |
+| Firecrawl "read operation timed out" | That career site was slow; it's skipped this run and retried next time. |
+| `ERROR:jobspy.google:no job data returned` | Google Jobs blocked or changed its page. Harmless; the other sources still work. |
 
 ## Chat tools that can't run commands (ChatGPT/Claude/Gemini on the web)
 

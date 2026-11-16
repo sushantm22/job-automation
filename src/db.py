@@ -236,21 +236,26 @@ def mark_company_checked(
     slug: str,
     job_count: int | None = None,
     db_path: Path = DB_PATH,
+    status: str | None = None,
 ) -> None:
-    """Stamps last_checked_at (and optionally job_count) after a Tier 1 poll, leaving name/status untouched."""
+    """
+    Stamps last_checked_at after a Tier 1 poll, optionally updating job_count and status.
+    The company name is never touched (upsert_company would overwrite it with a slug-derived name).
+    """
     now = datetime.now(timezone.utc).isoformat()
+    sets, params = ["last_checked_at = ?"], [now]
+    if job_count is not None:
+        sets.append("job_count = ?")
+        params.append(int(job_count))
+    if status is not None:
+        sets.append("status = ?")
+        params.append(status)
     connection = get_connection(db_path)
     try:
-        if job_count is None:
-            connection.execute(
-                "UPDATE company_registry SET last_checked_at = ? WHERE platform = ? AND slug = ?",
-                (now, platform.lower().strip(), slug),
-            )
-        else:
-            connection.execute(
-                "UPDATE company_registry SET last_checked_at = ?, job_count = ? WHERE platform = ? AND slug = ?",
-                (now, int(job_count), platform.lower().strip(), slug),
-            )
+        connection.execute(
+            f"UPDATE company_registry SET {', '.join(sets)} WHERE platform = ? AND slug = ?",
+            (*params, platform.lower().strip(), slug),
+        )
         connection.commit()
     finally:
         connection.close()

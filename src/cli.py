@@ -84,7 +84,7 @@ def discover(
 
     tier_map = {
         "tier1_direct_apis": ("Tier 1", "Direct APIs (Greenhouse / Lever / Ashby)"),
-        "tier2_jobspy": ("Tier 2", "JobSpy (LinkedIn / Indeed / Glassdoor)"),
+        "tier2_jobspy": ("Tier 2", "JobSpy (LinkedIn / Indeed / Glassdoor / Google / Naukri)"),
         "tier3_apify": ("Tier 3", "Apify (Naukri & Protected Aggregators)"),
         "tier4_firecrawl": ("Tier 4", "Firecrawl (Google / Apple / Enterprise Portals)"),
     }
@@ -321,9 +321,13 @@ def init_notion_db(
         })
         typer.echo("✅ Saved NOTION_DATABASE_ID and NOTION_PARENT_PAGE_ID to .env — discovery will sync here automatically.")
     except Exception as err:
+        from .integrations.notion_client import explain_notion_error
         from .onboarding import NOTION_CONNECT_TIP
-        typer.echo(f"❌ Error creating Notion database: {err}")
-        typer.echo(NOTION_CONNECT_TIP)
+        message, sharing_problem = explain_notion_error(err)
+        typer.echo(f"❌ Error creating Notion database: {message}")
+        if sharing_problem:
+            typer.echo(NOTION_CONNECT_TIP)
+        raise typer.Exit(code=1)
 
 
 @app.command("sync-notion")
@@ -410,6 +414,29 @@ app.add_typer(onboard_app, name="onboard")
 def _emit(data: dict, as_json: bool, human: str) -> None:
     import json as _json
     typer.echo(_json.dumps(data, indent=2) if as_json else human)
+
+
+@onboard_app.command("prepare")
+def onboard_prepare(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Step 0: create .env from .env.example, the database, and the company registry. Safe to re-run."""
+    from .onboard_steps import prepare
+
+    res = prepare()
+    lines = [
+        f".env: {'created from .env.example' if res['env_created'] else 'already exists'} ({res['env_file']})",
+        f"Database: {res['database']}",
+        f"Company boards: {res['registry_boards']}" + (f" (loaded {res['registry_seeded']} from companies.yaml)" if res["registry_seeded"] else ""),
+    ]
+    _emit(res, as_json, "\n".join(lines))
+
+
+@onboard_app.command("check-keys")
+def onboard_check_keys(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Check the keys in .env online without printing them (use after the user edits .env themselves)."""
+    from .onboard_steps import check_keys
+
+    res = check_keys()
+    _emit(res, as_json, "\n".join(f"{name}: {state}" for name, state in res.items()))
 
 
 @onboard_app.command("status")

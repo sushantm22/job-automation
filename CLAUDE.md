@@ -30,7 +30,9 @@ When the user wants to get started, set up, "use this repo", or find jobs, follo
 
 ```bash
 # Onboarding (non-interactive; for assistants and scripts)
+python -m src.cli onboard prepare                # Step 0: create .env (from .env.example), database, company list
 python -m src.cli onboard status --json          # What's done/missing + next_step
+python -m src.cli onboard check-keys             # Verify keys the user added to .env (never prints values)
 python -m src.cli onboard set-search --roles "..." --locations "..."   # Saved to config.local.yaml (gitignored)
 printf '%s' "$KEY" | python -m src.cli onboard set-key NOTION_API_KEY   # Secret via stdin -> .env
 python -m src.cli onboard set-profile first_name=... city=... resume=/path/cv.pdf

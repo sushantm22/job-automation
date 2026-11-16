@@ -404,8 +404,11 @@ def run_interactive_onboarding() -> None:
                     new_env_vars.update(notion_env)
                     console.print(f"   [green]✔ Notion table created:[/green] {table_url}")
                 except Exception as err:
-                    console.print(f"   [red]❌ Could not create the Notion table: {err}[/red]")
-                    console.print(NOTION_CONNECT_TIP)
+                    from .integrations.notion_client import explain_notion_error
+                    message, sharing_problem = explain_notion_error(err)
+                    console.print(f"   [red]❌ Could not create the Notion table: {message}[/red]")
+                    if sharing_problem:
+                        console.print(NOTION_CONNECT_TIP)
 
     # Database Path
     new_env_vars.setdefault("DATABASE_PATH", current_env.get("DATABASE_PATH", "data/jobs.db"))

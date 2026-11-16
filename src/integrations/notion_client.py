@@ -15,6 +15,25 @@ NOTION_API_VERSION = "2022-06-28"
 NOTION_BASE_URL = "https://api.notion.com/v1"
 
 
+# Select-option colors the Notion API accepts (anything else is a 400 validation_error).
+NOTION_SELECT_COLORS = {"default", "gray", "brown", "orange", "yellow", "green", "blue", "purple", "pink", "red"}
+
+
+def explain_notion_error(err: Exception) -> tuple[str, bool]:
+    """
+    Returns (Notion's own error message, whether the "share the page with your integration" tip applies).
+    A 400 is a malformed request, so the sharing tip would mislead; 401/403/404 are access problems.
+    """
+    code = getattr(err, "code", None)
+    message = ""
+    if hasattr(err, "read"):
+        try:
+            message = json.loads(err.read().decode("utf-8")).get("message", "")
+        except Exception:
+            pass
+    return message or str(err), code in (None, 401, 403, 404)
+
+
 def get_notion_headers(api_token: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_token.strip()}",
@@ -78,7 +97,7 @@ def create_notion_job_database(
                         {"name": "Google", "color": "pink"},
                         {"name": "Apple", "color": "gray"},
                         {"name": "Netflix", "color": "red"},
-                        {"name": "Uber", "color": "black"},
+                        {"name": "Uber", "color": "default"},
                     ]
                 }
             },

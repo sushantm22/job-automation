@@ -152,3 +152,44 @@ def test_cli_status_json_is_machine_readable(sandbox: Path):
     result = CliRunner().invoke(app, ["onboard", "status", "--json"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["next_step"] == "search"
+
+
+# --- prepare / check-keys (bug: .env did not exist when the user was asked to add keys) ---
+
+def test_prepare_creates_env_db_and_registry_before_any_question(sandbox: Path, monkeypatch):
+    shutil.copy(ROOT / ".env.example", sandbox / ".env.example")
+    monkeypatch.setattr(onboarding, "ENV_EXAMPLE_PATH", sandbox / ".env.example")
+    assert steps.get_status()["env_file_exists"] is False
+
+    res = steps.prepare()
+
+    assert res["env_created"] is True
+    assert (sandbox / ".env").read_text(encoding="utf-8") == (sandbox / ".env.example").read_text(encoding="utf-8")
+    assert res["registry_boards"] > 0 and (sandbox / "data" / "jobs.db").exists()
+    assert steps.get_status()["env_file_exists"] is True
+    # The template's blank placeholders must not count as keys.
+    assert not any(steps.get_status()["steps"]["api_keys"]["keys_set"].values())
+
+    # Re-running never overwrites keys the user already added.
+    (sandbox / ".env").write_text("NOTION_API_KEY=ntn_good_value\n", encoding="utf-8")
+    again = steps.prepare()
+    assert again["env_created"] is False and again["registry_seeded"] == 0
+    assert onboarding.read_env_file()["NOTION_API_KEY"] == "ntn_good_value"
+
+
+def test_prepare_creates_env_even_without_template(sandbox: Path, monkeypatch):
+    monkeypatch.setattr(onboarding, "ENV_EXAMPLE_PATH", sandbox / "missing.env.example")
+    assert steps.prepare()["env_created"] is True
+    assert (sandbox / ".env").exists()
+
+
+def test_check_keys_reports_status_without_values(sandbox: Path):
+    (sandbox / ".env").write_text(
+        "NOTION_API_KEY=ntn_good_value\nGEMINI_API_KEY=AIza-bad\nFIRECRAWL_API_KEY=fc-x\n", encoding="utf-8"
+    )
+    assert steps.check_keys() == {
+        "NOTION_API_KEY": "verified",
+        "APIFY_API_TOKEN": "missing",
+        "FIRECRAWL_API_KEY": "set (no online check)",
+        "GEMINI_API_KEY": "failed",
+    }

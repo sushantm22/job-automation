@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.error import HTTPError
 
 from ..config import Settings, load_settings
 from ..db import DB_PATH, get_connection, mark_company_checked, upsert_jobs
@@ -56,6 +57,15 @@ class JobDiscoveryEngine:
 
                     discovered.extend(jobs)
                     mark_company_checked(platform, slug, job_count=len(jobs), db_path=self.db_path)
+                except HTTPError as err:
+                    if err.code == 404:
+                        # The board is gone (company left this ATS). Same rule as `validate-companies`:
+                        # only an explicit 404 deactivates; network errors and rate limits never do.
+                        logger.warning(f"[Tier 1: {platform}] Board '{slug}' no longer exists (404); removed from your registry.")
+                        mark_company_checked(platform, slug, db_path=self.db_path, status="inactive")
+                    else:
+                        logger.warning(f"[Tier 1: {platform}] Error polling {slug}: {err}")
+                        mark_company_checked(platform, slug, db_path=self.db_path)
                 except Exception as err:
                     logger.warning(f"[Tier 1: {platform}] Error polling {slug}: {err}")
                     # Still stamp the check so a failing board doesn't stay at the front of the rotation.

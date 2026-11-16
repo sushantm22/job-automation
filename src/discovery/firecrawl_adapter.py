@@ -127,7 +127,7 @@ def scrape_portal_with_firecrawl(
     portal_url: str,
     company_name: str,
     api_key: str,
-    timeout: float = 25.0,
+    timeout: float = 60.0,
 ) -> list[JobRecord]:
     """
     Scrapes a single enterprise portal using Firecrawl's scrape & extract endpoint.
@@ -190,7 +190,7 @@ def scrape_portal_with_firecrawl(
 def fetch_firecrawl_portal_jobs(
     portals: list[dict[str, str]] | None = None,
     api_key: str | None = None,
-    timeout: float = 25.0,
+    timeout: float = 60.0,
     budget: int = 10,
     covered_companies: set[str] | None = None,
 ) -> list[JobRecord]:
