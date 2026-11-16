@@ -261,16 +261,33 @@ def test_discover_offline_exits_with_clear_message_and_keeps_step_open(tmp_path:
     assert onboard_steps.load_state().get("first_discovery") is None
 
 
-def test_discover_auto_sync_pushes_all_pending_jobs_not_just_50(tmp_path: Path):
+def test_discover_notion_sync_is_capped_per_run_and_reports_what_is_waiting(tmp_path: Path):
+    from src.db import upsert_jobs
+
     db_file = tmp_path / "jobs.db"
     init_db(db_file)
-    settings = Settings(notion_enabled=True, notion_auto_sync=True, notion_database_id="d" * 32, notion_api_token="ntn_x")
-    engine = JobDiscoveryEngine(settings=settings, db_path=db_file)
+    upsert_jobs([{"source": "t", "title": f"Job {i}", "url": f"https://x/{i}"} for i in range(5)], db_path=db_file)
+    base = dict(notion_enabled=True, notion_auto_sync=True, notion_database_id="d" * 32, notion_api_token="ntn_x",
+                jobhive_enabled=False)
 
-    # Tier 1 is stubbed out so the test makes no network calls.
+    engine = JobDiscoveryEngine(settings=Settings(**base, notion_max_sync_per_run=200), db_path=db_file)
     with patch.object(engine, "run_tier1_direct_apis", return_value=[]), \
-         patch("src.integrations.notion_client.sync_jobs_to_notion", return_value={"synced": 68}) as sync:
+         patch("src.integrations.notion_client.sync_jobs_to_notion", return_value={"synced": 0}) as sync:
         result = engine.execute_all_tiers(selected_tiers=[1], auto_harvest=False)
+    assert sync.call_args.kwargs["limit"] == 200
+    assert result["notion_pending"] == 5  # nothing was really pushed, so all 5 are still waiting
 
+    # A cap of 0 means "sync everything in this run".
+    engine = JobDiscoveryEngine(settings=Settings(**base, notion_max_sync_per_run=0), db_path=db_file)
+    with patch.object(engine, "run_tier1_direct_apis", return_value=[]), \
+         patch("src.integrations.notion_client.sync_jobs_to_notion", return_value={"synced": 0}) as sync:
+        engine.execute_all_tiers(selected_tiers=[1], auto_harvest=False)
     assert sync.call_args.kwargs["limit"] is None
-    assert result["notion_synced"] == 68
+
+
+def test_sync_notion_command_pushes_all_pending_by_default():
+    from src.cli import app
+
+    with patch("src.integrations.notion_client.sync_jobs_to_notion", return_value={"synced": 3, "failed": 0}) as sync:
+        result = CliRunner().invoke(app, ["sync-notion"])
+    assert result.exit_code == 0 and sync.call_args.kwargs["limit"] is None

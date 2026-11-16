@@ -27,6 +27,9 @@ discovery:
   apify_actor_id: "valig/naukri-jobs-scraper"
   firecrawl_api_key: ""     # Configured in .env as FIRECRAWL_API_KEY
   firecrawl_daily_budget: 10  # Max portals per discovery run (1 credit each on free tier)
+  jobhive:                    # Free public dataset of ATS jobs (Workday, Oracle, ...); part of Tier 1
+    enabled: true
+    platforms: [workday, oracle, successfactors, icims, darwinbox, keka]
 
 notion:
   enabled: true
@@ -34,3 +37,4 @@ notion:
   database_id: ""           # Configured in .env as NOTION_DATABASE_ID
   parent_page_id: ""        # Configured in .env as NOTION_PARENT_PAGE_ID
   auto_sync_on_discover: true
+  max_sync_per_run: 200     # New rows pushed per discover run; `sync-notion` pushes the rest

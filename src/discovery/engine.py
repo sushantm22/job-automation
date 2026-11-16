@@ -12,12 +12,21 @@ from .ashby import fetch_ashby_jobs
 from .base import JobRecord
 from .firecrawl_adapter import fetch_firecrawl_portal_jobs
 from .greenhouse import fetch_greenhouse_jobs
+from .jobhive import fetch_jobhive_jobs
 from .jobspy_adapter import fetch_jobspy_jobs
 from .lever import fetch_lever_jobs
 from .registry import CompanyRegistry
 from .smartrecruiters import fetch_smartrecruiters_jobs
 
 logger = logging.getLogger(__name__)
+
+
+def _count_unsynced(db_path) -> int:
+    conn = get_connection(db_path)
+    try:
+        return conn.execute("SELECT count(*) FROM jobs WHERE notion_page_id IS NULL").fetchone()[0]
+    finally:
+        conn.close()
 
 
 class JobDiscoveryEngine:
@@ -94,6 +103,29 @@ class JobDiscoveryEngine:
         logger.info(f"[Tier 1: Direct APIs] Total fetched: {len(discovered)} jobs")
         return discovered
 
+    def run_tier1_jobhive(self) -> list[JobRecord]:
+        """Tier 1 (dataset): India jobs from the public JobHive dataset (Workday, Oracle, ...)."""
+        import hashlib
+        import json
+        from pathlib import Path
+
+        s = self.settings
+        # Cache stamps are only valid for the same search settings and database.
+        cache_key = hashlib.sha1(json.dumps(
+            [s.search_keywords, s.locations, s.exclude_keywords, str(self.db_path)], sort_keys=True
+        ).encode()).hexdigest()
+        try:
+            jobs = fetch_jobhive_jobs(
+                platforms=s.jobhive_platforms,
+                cache_path=Path(f"{self.db_path}.jobhive-cache.json"),
+                cache_key=cache_key,
+            )
+        except Exception as err:  # e.g. pyarrow missing: never break discovery
+            logger.warning(f"[Tier 1: JobHive] Skipped: {err}")
+            return []
+        logger.info(f"[Tier 1: JobHive] Total fetched: {len(jobs)} India jobs")
+        return jobs
+
     def run_tier2_jobspy(
         self,
         keywords: list[str] | None = None,
@@ -169,6 +201,7 @@ class JobDiscoveryEngine:
         all_jobs: list[JobRecord] = []
         tier_counts: dict[str, int] = {
             "tier1_direct_apis": 0,
+            "tier1_jobhive": 0,
             "tier2_jobspy": 0,
             "tier3_apify": 0,
             "tier4_firecrawl": 0,
@@ -179,6 +212,11 @@ class JobDiscoveryEngine:
             t1_jobs = self.run_tier1_direct_apis(company_limit=company_limit)
             tier_counts["tier1_direct_apis"] = len(t1_jobs)
             all_jobs.extend(t1_jobs)
+
+        if 1 in active_tiers and self.settings.jobhive_enabled:
+            hive_jobs = self.run_tier1_jobhive()
+            tier_counts["tier1_jobhive"] = len(hive_jobs)
+            all_jobs.extend(hive_jobs)
 
         # 2. Tier 2: JobSpy Aggregators
         if 2 in active_tiers and self.settings.tier2_jobspy:
@@ -270,11 +308,14 @@ class JobDiscoveryEngine:
 
         # 7. Optional Automatic Notion Database Sync
         notion_synced = 0
+        notion_pending = 0
         if self.settings.notion_enabled and self.settings.notion_auto_sync and self.settings.notion_database_id:
             try:
                 from ..integrations.notion_client import sync_jobs_to_notion
-                sync_res = sync_jobs_to_notion(db_path=self.db_path, limit=None)
+                cap = self.settings.notion_max_sync_per_run
+                sync_res = sync_jobs_to_notion(db_path=self.db_path, limit=cap if cap and cap > 0 else None)
                 notion_synced = sync_res.get("synced", 0)
+                notion_pending = _count_unsynced(self.db_path)
                 if notion_synced > 0:
                     logger.info(f"[Notion Sync] Automatically synced {notion_synced} new jobs to Notion table.")
             except Exception as err:
@@ -290,5 +331,6 @@ class JobDiscoveryEngine:
             "registry_seeded": self.registry_seeded,
             "network_unavailable": self.network_unavailable,
             "notion_synced": notion_synced,
+            "notion_pending": notion_pending,
             "jobs": all_jobs,
         }

@@ -304,6 +304,8 @@ def reset_db(db_path: Path = DB_PATH) -> dict[str, int]:
         connection.commit()
         connection.execute("VACUUM")
         connection.commit()
+        # The JobHive cache marks dataset files as "already processed"; after a reset they aren't.
+        Path(f"{db_path}.jobhive-cache.json").unlink(missing_ok=True)
         return {"jobs_deleted": jobs_count, "applications_deleted": apps_count}
     finally:
         connection.close()

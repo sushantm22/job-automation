@@ -19,7 +19,7 @@ When the user wants to get started, set up, "use this repo", or find jobs, follo
 
 ## 4-Tier Discovery Architecture
 
-1. **Tier 1 (Direct ATS APIs):** Direct JSON endpoints for Greenhouse, Lever, Ashby and SmartRecruiters across 150+ companies in `src/discovery/companies.yaml` (new entries are added to each user's registry automatically). **100% Free, instant (<200ms), zero API keys.**
+1. **Tier 1 (Direct ATS APIs):** Direct JSON endpoints for Greenhouse, Lever, Ashby and SmartRecruiters across 150+ companies in `src/discovery/companies.yaml` (new entries are added to each user's registry automatically). **100% Free, instant (<200ms), zero API keys.** Tier 1 also reads the free **JobHive** dataset (Workday, Oracle, SuccessFactors, iCIMS, Darwinbox, Keka; India rows only, column-level HTTP range reads, cached by Last-Modified), since Workday blocks direct non-browser access.
 2. **Tier 2 (JobSpy Aggregator):** Scrapes 4 sources (LinkedIn, Indeed, Glassdoor, Naukri) for India & Remote. **100% Free, zero API keys.**
 3. **Tier 3 (Apify Naukri Anti-Bot):** Cloud residential proxy actor (`valig/naukri-jobs-scraper`). **Smart Fallback:** Only fires if Tier 2 (JobSpy) returned 0 Naukri results, conserving free credits. Optional `APIFY_API_TOKEN` in `.env`.
 4. **Tier 4 (Firecrawl Enterprise Portals):** Dynamic client-side SPA crawler for 20 custom portals (Google, Apple, Microsoft, Amazon, Meta, Swiggy, Flipkart, etc.). **Smart Fallback:** Skips companies already found in Tiers 1-2. Enforces `firecrawl_daily_budget: 10` to conserve credits. Optional `FIRECRAWL_API_KEY` in `.env`.
@@ -46,7 +46,7 @@ python -m src.cli discover --company-limit 20 # Custom company limit (rotates th
 
 # Notion Sync & Management
 python -m src.cli init-notion-db --parent-page-id <url>  # Create Notion table; saves NOTION_DATABASE_ID to .env
-python -m src.cli sync-notion        # Sync pending SQLite jobs to Notion
+python -m src.cli sync-notion        # Push ALL pending jobs to Notion (discover pushes max 200/run)
 
 # Security & Database Maintenance
 python -m src.cli verify-secrets     # Audit tracked files for exposed API keys (MUST run before push)
@@ -63,6 +63,7 @@ PYTHONPATH=. .venv/bin/pytest -v     # Run full automated test suite
 
 - `src/discovery/engine.py`: Coordinates all 4 tiers, smart fallbacks, auto-harvesting, and deduplication.
 - `src/discovery/greenhouse.py`, `lever.py`, `ashby.py`, `smartrecruiters.py`: Tier 1 direct ATS API adapters (SmartRecruiters is filtered to India server-side).
+- `src/discovery/jobhive.py`: Tier 1 reader for the public JobHive dataset (no posting dates; third-party free service, failures are skipped).
 - `src/discovery/jobspy_adapter.py`: Tier 2 JobSpy adapter (LinkedIn, Indeed, Glassdoor, Naukri; Google Jobs disabled: it requires JavaScript since Jan 2025).
 - `src/discovery/apify_adapter.py`: Tier 3 Apify cloud anti-bot actor for Naukri.
 - `src/discovery/firecrawl_adapter.py`: Tier 4 Firecrawl dynamic client-side SPA crawler.

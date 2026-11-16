@@ -145,11 +145,19 @@ Say it takes a few minutes. Then run the free sources:
 
 (Use plain `discover` to include Apify and Firecrawl if those keys were added.) Give the command a
 long timeout, around 10 minutes, because JobSpy (tier 2) scrapes several job sites one after another.
+Tier 1 also reads the free JobHive dataset (Workday, Oracle, SuccessFactors, iCIMS, Darwinbox, Keka
+jobs in India, about 50 MB once a day), so the first run can find hundreds or thousands of matches.
 
 Afterwards:
 - Summarize the results table: jobs fetched, how many matched, how many were new, and how many were
   synced to Notion.
-- Run `PY -m src.cli list` and show the matches as a table in chat (company, title, location).
+- **If the output says "N more jobs are waiting for Notion"**: each `discover` run pushes at most 200
+  new rows (`notion.max_sync_per_run` in `config.yaml`). Tell the user, then run
+  `PY -m src.cli sync-notion` (pushes all of them; allow a long timeout or run it in the background,
+  since Notion accepts about 3 rows per second).
+- Run `PY -m src.cli list` and show a sample of the matches as a table in chat (company, title,
+  location). JobHive jobs have no posting date, and Oracle-hosted employers may show internal codes
+  (e.g. "Hcbt") instead of company names.
 - **If 0 matched:** the role titles are probably too narrow. Suggest broader or additional titles and
   go back to the `search` step. The filter keeps only jobs whose **title** matches a role (or core QA
   terms), located in India or remote.

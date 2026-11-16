@@ -68,12 +68,15 @@ class Settings(BaseSettings):
     firecrawl_api_key: str = Field(default="", validation_alias=AliasChoices("FIRECRAWL_API_KEY", "firecrawl_api_key"))
     enterprise_portals: list[dict[str, str]] = Field(default_factory=list)
     firecrawl_daily_budget: int = 10
+    jobhive_enabled: bool = True
+    jobhive_platforms: list[str] = Field(default_factory=lambda: ["workday", "oracle", "successfactors", "icims", "darwinbox", "keka"])
     database_path: Path = Field(default=DEFAULT_DATABASE_PATH, validation_alias=AliasChoices("DATABASE_PATH", "database_path"))
     notion_enabled: bool = True
     notion_api_token: str = Field(default="", validation_alias=AliasChoices("NOTION_API_KEY", "notion_api_token"))
     notion_database_id: str = Field(default="", validation_alias=AliasChoices("NOTION_DATABASE_ID", "notion_database_id"))
     notion_parent_page_id: str = Field(default="", validation_alias=AliasChoices("NOTION_PARENT_PAGE_ID", "notion_parent_page_id"))
     notion_auto_sync: bool = True
+    notion_max_sync_per_run: int = 200
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -138,11 +141,16 @@ def load_settings(config_path: Path = CONFIG_PATH) -> Settings:
         "firecrawl_api_key": discovery_cfg.get("firecrawl_api_key", ""),
         "enterprise_portals": discovery_cfg.get("enterprise_portals", []),
         "firecrawl_daily_budget": discovery_cfg.get("firecrawl_daily_budget", 10),
+        "jobhive_enabled": (discovery_cfg.get("jobhive") or {}).get("enabled", True),
+        "jobhive_platforms": (discovery_cfg.get("jobhive") or {}).get(
+            "platforms", ["workday", "oracle", "successfactors", "icims", "darwinbox", "keka"]
+        ),
         "notion_enabled": raw.get("notion", {}).get("enabled", True),
         "notion_api_token": raw.get("notion", {}).get("api_token", ""),
         "notion_database_id": raw.get("notion", {}).get("database_id", ""),
         "notion_parent_page_id": raw.get("notion", {}).get("parent_page_id", ""),
         "notion_auto_sync": raw.get("notion", {}).get("auto_sync_on_discover", True),
+        "notion_max_sync_per_run": raw.get("notion", {}).get("max_sync_per_run", 200),
     }
 
     env_values = {

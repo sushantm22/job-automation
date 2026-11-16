@@ -84,6 +84,7 @@ def discover(
 
     tier_map = {
         "tier1_direct_apis": ("Tier 1", "Direct APIs (Greenhouse / Lever / Ashby / SmartRecruiters)"),
+        "tier1_jobhive": ("Tier 1", "JobHive dataset (Workday / Oracle / SuccessFactors / iCIMS / Darwinbox / Keka)"),
         "tier2_jobspy": ("Tier 2", "JobSpy (LinkedIn / Indeed / Glassdoor / Naukri)"),
         "tier3_apify": ("Tier 3", "Apify (Naukri & Protected Aggregators)"),
         "tier4_firecrawl": ("Tier 4", "Firecrawl (Google / Apple / Enterprise Portals)"),
@@ -119,7 +120,13 @@ def discover(
 
     if result.get("notion_synced", 0) > 0:
         console.print(f"📋 [bold cyan]Notion Table Updated:[/bold cyan] {result['notion_synced']} jobs synced to [link=https://app.notion.com/p/{settings.notion_database_id}]Notion Table[/link]")
-    elif settings.notion_enabled and settings.notion_database_id:
+    if result.get("notion_pending", 0) > 0:
+        console.print(
+            f"⏳ [bold yellow]{result['notion_pending']} more jobs are waiting for Notion[/bold yellow] "
+            f"(this run synced up to {settings.notion_max_sync_per_run}). Push them all with: "
+            "[bold cyan]python -m src.cli sync-notion[/bold cyan]"
+        )
+    elif result.get("notion_synced", 0) == 0 and settings.notion_enabled and settings.notion_database_id:
         console.print(f"📋 [dim]Notion Database:[/dim] All stored jobs are up to date in [link=https://app.notion.com/p/{settings.notion_database_id}]Notion[/link]")
 
 
@@ -341,7 +348,7 @@ def init_notion_db(
 
 @app.command("sync-notion")
 def sync_notion(
-    limit: int = typer.Option(50, help="Max unsynced jobs to push in this batch"),
+    limit: int = typer.Option(0, help="Max unsynced jobs to push (0 = all pending)"),
     database_id: str = typer.Option(None, help="Target Notion Database ID (defaults to config)"),
 ) -> None:
     """Syncs new jobs from SQLite database to the Notion Database table."""
@@ -349,7 +356,7 @@ def sync_notion(
 
     typer.echo(f"Syncing jobs from SQLite to Notion...")
     try:
-        res = sync_jobs_to_notion(database_id=database_id, limit=limit)
+        res = sync_jobs_to_notion(database_id=database_id, limit=limit if limit > 0 else None)
         typer.echo(f"Sync complete:")
         typer.echo(f"  • {res['synced']} jobs synced to Notion")
         if res.get("failed", 0) > 0:
