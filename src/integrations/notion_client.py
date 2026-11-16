@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
+import time
 from datetime import datetime, timezone
 from typing import Any
 from urllib import request, error
@@ -19,19 +21,53 @@ NOTION_BASE_URL = "https://api.notion.com/v1"
 NOTION_SELECT_COLORS = {"default", "gray", "brown", "orange", "yellow", "green", "blue", "purple", "pink", "red"}
 
 
+# Waits before retrying a request that never reached Notion (DNS lookup failed / connection refused).
+NETWORK_RETRY_DELAYS = (1.0, 3.0)
+
+
+def _never_reached_server(err: BaseException) -> bool:
+    """True only when the request certainly wasn't sent, so retrying a POST can't create duplicates."""
+    if isinstance(err, error.HTTPError):
+        return False
+    reason = getattr(err, "reason", err)
+    return isinstance(reason, (socket.gaierror, ConnectionRefusedError))
+
+
+def _send_json(req: request.Request, timeout: float) -> dict[str, Any]:
+    """Sends a Notion API request, retrying briefly if the network was momentarily unavailable."""
+    for attempt in range(len(NETWORK_RETRY_DELAYS) + 1):
+        try:
+            with request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (error.URLError, OSError) as err:
+            if attempt >= len(NETWORK_RETRY_DELAYS) or not _never_reached_server(err):
+                raise
+            logger.info(f"[Notion] Could not reach api.notion.com ({err}); retrying.")
+            time.sleep(NETWORK_RETRY_DELAYS[attempt])
+    raise RuntimeError("unreachable")
+
+
 def explain_notion_error(err: Exception) -> tuple[str, bool]:
     """
-    Returns (Notion's own error message, whether the "share the page with your integration" tip applies).
-    A 400 is a malformed request, so the sharing tip would mislead; 401/403/404 are access problems.
+    Returns (a message for the user, whether the "share the page with your integration" tip applies).
+    Only 401/403/404 are access problems. A 400 is a malformed request, and a network failure never
+    reached Notion at all, so the sharing tip would mislead in those cases.
     """
-    code = getattr(err, "code", None)
-    message = ""
-    if hasattr(err, "read"):
+    if isinstance(err, error.HTTPError):
+        message = ""
         try:
             message = json.loads(err.read().decode("utf-8")).get("message", "")
         except Exception:
             pass
-    return message or str(err), code in (None, 401, 403, 404)
+        return message or str(err), err.code in (401, 403, 404)
+    if isinstance(err, (error.URLError, OSError)):
+        reason = getattr(err, "reason", err)
+        return (
+            f"Couldn't reach Notion (api.notion.com): {reason}. This is a network problem, not your Notion "
+            "setup. Check the internet connection (or allow network access for this tool) and try again.",
+            False,
+        )
+    return str(err), False
 
 
 def get_notion_headers(api_token: str) -> dict[str, str]:
@@ -125,12 +161,11 @@ def create_notion_job_database(
         method="POST",
     )
 
-    with request.urlopen(req, timeout=timeout) as resp:
-        res_data = json.loads(resp.read().decode("utf-8"))
-        db_id = res_data.get("id")
-        db_url = res_data.get("url")
-        logger.info(f"Created Notion Database: {title} ({db_id})")
-        return {"id": db_id, "url": db_url, "title": title}
+    res_data = _send_json(req, timeout)
+    db_id = res_data.get("id")
+    db_url = res_data.get("url")
+    logger.info(f"Created Notion Database: {title} ({db_id})")
+    return {"id": db_id, "url": db_url, "title": title}
 
 
 def format_job_properties(job: dict[str, Any]) -> dict[str, Any]:
@@ -238,9 +273,8 @@ def push_job_to_notion(
         method="POST",
     )
 
-    with request.urlopen(req, timeout=timeout) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
-        return res.get("id") or ""
+    res = _send_json(req, timeout)
+    return res.get("id") or ""
 
 
 def sync_jobs_to_notion(

@@ -5,7 +5,8 @@ import io
 import json
 from pathlib import Path
 from unittest.mock import patch
-from urllib.error import HTTPError
+import socket
+from urllib.error import HTTPError, URLError
 
 from typer.testing import CliRunner
 
@@ -55,7 +56,81 @@ def test_explain_notion_error_shows_notion_message_and_tip_only_for_access_error
     not_shared = _http_error(404, {"message": "Could not find page with ID: abc"})
     assert notion_client.explain_notion_error(not_shared) == ("Could not find page with ID: abc", True)
 
-    assert notion_client.explain_notion_error(ValueError("boom")) == ("boom", True)
+    # A missing key or other local problem isn't a sharing problem either.
+    assert notion_client.explain_notion_error(ValueError("NOTION_API_KEY is not configured.")) == (
+        "NOTION_API_KEY is not configured.", False
+    )
+
+
+# --- DNS failure showed the "share the page" tip and failed on a one-off hiccup ------
+
+def _dns_failure() -> URLError:
+    return URLError(socket.gaierror(8, "nodename nor servname provided, or not known"))
+
+
+def test_explain_notion_error_reports_network_failure_without_sharing_tip():
+    message, sharing_problem = notion_client.explain_notion_error(_dns_failure())
+    assert sharing_problem is False
+    assert "Couldn't reach Notion" in message and "network problem" in message
+
+
+class _FakeResponse(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_notion_request_retries_when_request_never_left_the_machine(monkeypatch):
+    monkeypatch.setattr(notion_client.time, "sleep", lambda s: None)
+    calls = []
+
+    def flaky_urlopen(req, timeout=None):
+        calls.append(1)
+        if len(calls) == 1:
+            raise _dns_failure()
+        return _FakeResponse(json.dumps({"id": "db-1", "url": "u"}).encode("utf-8"))
+
+    with patch.object(notion_client.request, "urlopen", flaky_urlopen):
+        res = notion_client.create_notion_job_database("a" * 32, api_token="ntn_fake_token")
+
+    assert res["id"] == "db-1" and len(calls) == 2
+
+
+def test_notion_request_does_not_retry_timeouts_or_notion_errors(monkeypatch):
+    # A timeout may have reached Notion, so retrying a create could make a duplicate table.
+    monkeypatch.setattr(notion_client.time, "sleep", lambda s: None)
+    for failure in (URLError(TimeoutError("timed out")), _http_error(400, {"message": "bad"})):
+        calls = []
+
+        def failing_urlopen(req, timeout=None, failure=failure):
+            calls.append(1)
+            raise failure
+
+        with patch.object(notion_client.request, "urlopen", failing_urlopen):
+            try:
+                notion_client.create_notion_job_database("a" * 32, api_token="ntn_fake_token")
+            except URLError:
+                pass
+        assert len(calls) == 1, failure
+
+
+def test_notion_request_gives_up_after_retries(monkeypatch):
+    monkeypatch.setattr(notion_client.time, "sleep", lambda s: None)
+    calls = []
+
+    def down(req, timeout=None):
+        calls.append(1)
+        raise _dns_failure()
+
+    with patch.object(notion_client.request, "urlopen", down):
+        try:
+            notion_client.create_notion_job_database("a" * 32, api_token="ntn_fake_token")
+            raise AssertionError("expected failure")
+        except URLError:
+            pass
+    assert len(calls) == len(notion_client.NETWORK_RETRY_DELAYS) + 1
 
 
 def test_init_notion_db_400_prints_real_reason_without_sharing_tip():

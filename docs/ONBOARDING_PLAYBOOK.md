@@ -189,6 +189,7 @@ they can simply **ask you** from now on:
 | Tier 1 shows `Board '<company>' no longer exists (404)` | That company left its job-board provider. It's removed from the user's registry automatically. |
 | Tier 2 returns 0 or errors | Job sites rate-limit scrapers. Try again later; tier 1 still works. |
 | Notion `object_not_found` / 404 | The parent page isn't shared with the integration (Notion step 2). |
+| "Couldn't reach Notion", `nodename nor servname provided`, `Name or service not known` | A network/DNS problem; the request never reached Notion, so the user's setup is fine. The command already retries briefly. Run it again. If your tool sandboxes commands, run it with network access allowed (or ask the user to approve that). Never send the user back to Notion's settings for this. |
 | Firecrawl "read operation timed out" | That career site was slow; it's skipped this run and retried next time. |
 | `ERROR:jobspy.google:no job data returned` | Google Jobs blocked or changed its page. Harmless; the other sources still work. |
 
