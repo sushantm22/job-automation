@@ -55,7 +55,9 @@ Tell the user you are installing things, which takes 1–3 minutes. Then:
      https://www.python.org/downloads/ (macOS alternative: `brew install python`), wait for them to
      confirm, then continue.
 2. If `.venv` does not exist: `python3 -m venv .venv` (Windows: `py -3 -m venv .venv`).
-3. Install dependencies: `PY -m pip install -r requirements.txt`. Pip cache warnings are harmless.
+3. Install dependencies: `PY -m pip install -r requirements.txt`. **This downloads packages, so it
+   needs internet access:** if your tool sandboxes commands, run it with network access enabled on
+   the first attempt (rule 9). Pip cache warnings are harmless.
 4. Run `PY -m src.cli onboard prepare`. It creates `.env` from `.env.example`, so the file exists
    before you ever ask for a key, and also creates the database and loads the company list. It's safe
    to re-run.
