@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import socket
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -10,6 +9,7 @@ from urllib import request, error
 
 from ..config import Settings, load_settings
 from ..db import DB_PATH, get_connection
+from ..utils.net import never_reached_server
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +25,6 @@ NOTION_SELECT_COLORS = {"default", "gray", "brown", "orange", "yellow", "green",
 NETWORK_RETRY_DELAYS = (1.0, 3.0)
 
 
-def _never_reached_server(err: BaseException) -> bool:
-    """True only when the request certainly wasn't sent, so retrying a POST can't create duplicates."""
-    if isinstance(err, error.HTTPError):
-        return False
-    reason = getattr(err, "reason", err)
-    return isinstance(reason, (socket.gaierror, ConnectionRefusedError))
-
-
 def _send_json(req: request.Request, timeout: float) -> dict[str, Any]:
     """Sends a Notion API request, retrying briefly if the network was momentarily unavailable."""
     for attempt in range(len(NETWORK_RETRY_DELAYS) + 1):
@@ -40,7 +32,7 @@ def _send_json(req: request.Request, timeout: float) -> dict[str, Any]:
             with request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except (error.URLError, OSError) as err:
-            if attempt >= len(NETWORK_RETRY_DELAYS) or not _never_reached_server(err):
+            if attempt >= len(NETWORK_RETRY_DELAYS) or not never_reached_server(err):
                 raise
             logger.info(f"[Notion] Could not reach api.notion.com ({err}); retrying.")
             time.sleep(NETWORK_RETRY_DELAYS[attempt])
@@ -112,6 +104,9 @@ def create_notion_job_database(
     payload = {
         "parent": {"type": "page_id", "page_id": page_id},
         "title": [{"type": "text", "text": {"content": title}}],
+        # Inline: the table renders directly on the parent page. A full-page database only shows
+        # there as a one-line link, which new users mistook for "no table was created".
+        "is_inline": True,
         "properties": {
             "Role Title": {"title": {}},
             "Company": {

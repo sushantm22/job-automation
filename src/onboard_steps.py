@@ -234,9 +234,8 @@ def set_key(name: str, value: str, verify: bool = True) -> dict[str, Any]:
     if not value:
         raise ValueError("Empty value: nothing saved.")
     write_env_file({name: value})
-    checker = SECRET_KEYS[name]
-    verified = checker(value) if (verify and checker) else None
-    return {"saved": name, "verified": verified}
+    check = _check_value(name, value) if verify else "not checked"
+    return {"saved": name, "verified": {"verified": True, "failed": False}.get(check), "check": check}
 
 
 def prepare() -> dict[str, Any]:
@@ -265,19 +264,27 @@ def prepare() -> dict[str, Any]:
     }
 
 
+UNREACHABLE = "couldn't check: no internet access (allow network access and run check-keys again)"
+
+
+def _check_value(name: str, value: str) -> str:
+    """verified | failed | set (no online check) | UNREACHABLE. Offline never counts as 'failed'."""
+    checker = SECRET_KEYS[name]
+    if checker is None:
+        return "set (no online check)"
+    result = checker(value)
+    if result is None:
+        return UNREACHABLE
+    return "verified" if result else "failed"
+
+
 def check_keys() -> dict[str, str]:
     """Checks every known key in .env online where possible. Returns name -> status; never returns values."""
     env = read_env_file()
-    results: dict[str, str] = {}
-    for name, checker in SECRET_KEYS.items():
-        value = (env.get(name) or "").strip()
-        if not value:
-            results[name] = "missing"
-        elif checker is None:
-            results[name] = "set (no online check)"
-        else:
-            results[name] = "verified" if checker(value) else "failed"
-    return results
+    return {
+        name: _check_value(name, (env.get(name) or "").strip()) if (env.get(name) or "").strip() else "missing"
+        for name in SECRET_KEYS
+    }
 
 
 def skip_step(step: str) -> None:

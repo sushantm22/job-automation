@@ -81,9 +81,11 @@ def test_read_env_file_ignores_inline_comments(sandbox: Path):
 
 
 def test_set_key_saves_and_reports_verification(sandbox: Path):
-    assert steps.set_key("NOTION_API_KEY", " ntn_good_value \n") == {"saved": "NOTION_API_KEY", "verified": True}
-    assert steps.set_key("GEMINI_API_KEY", "AIza-bad")["verified"] is False
-    assert steps.set_key("FIRECRAWL_API_KEY", "fc-x")["verified"] is None
+    assert steps.set_key("NOTION_API_KEY", " ntn_good_value \n") == {
+        "saved": "NOTION_API_KEY", "verified": True, "check": "verified"
+    }
+    assert steps.set_key("GEMINI_API_KEY", "AIza-bad")["check"] == "failed"
+    assert steps.set_key("FIRECRAWL_API_KEY", "fc-x")["check"] == "set (no online check)"
 
     env = onboarding.read_env_file()
     assert env["NOTION_API_KEY"] == "ntn_good_value"

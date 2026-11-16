@@ -15,6 +15,8 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
+from .utils.net import never_reached_server
+
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config.yaml"
 ENV_PATH = ROOT / ".env"
@@ -213,7 +215,7 @@ def mask_secret(secret: str) -> str:
     return f"{secret[:4]}...{secret[-4:]}"
 
 
-def test_gemini_key(api_key: str) -> bool:
+def test_gemini_key(api_key: str) -> bool | None:
     """Quick validation check for Google Gemini API key."""
     if not api_key:
         return False
@@ -222,11 +224,12 @@ def test_gemini_key(api_key: str) -> bool:
         req = urllib.request.Request(url, method="GET")
         with urllib.request.urlopen(req, timeout=8) as resp:
             return resp.status == 200
-    except Exception:
-        return False
+    except Exception as err:
+        # None = couldn't check (offline / sandboxed), which says nothing about the key itself.
+        return None if never_reached_server(err) else False
 
 
-def test_apify_token(token: str) -> bool:
+def test_apify_token(token: str) -> bool | None:
     """Quick validation check for Apify API token."""
     if not token:
         return False
@@ -235,11 +238,12 @@ def test_apify_token(token: str) -> bool:
         req = urllib.request.Request(url, method="GET")
         with urllib.request.urlopen(req, timeout=8) as resp:
             return resp.status == 200
-    except Exception:
-        return False
+    except Exception as err:
+        # None = couldn't check (offline / sandboxed), which says nothing about the key itself.
+        return None if never_reached_server(err) else False
 
 
-def test_notion_key(token: str) -> bool:
+def test_notion_key(token: str) -> bool | None:
     """Quick validation check for Notion Integration API token."""
     if not token:
         return False
@@ -252,8 +256,9 @@ def test_notion_key(token: str) -> bool:
         )
         with urllib.request.urlopen(req, timeout=8) as resp:
             return resp.status == 200
-    except Exception:
-        return False
+    except Exception as err:
+        # None = couldn't check (offline / sandboxed), which says nothing about the key itself.
+        return None if never_reached_server(err) else False
 
 
 def run_interactive_onboarding() -> None:

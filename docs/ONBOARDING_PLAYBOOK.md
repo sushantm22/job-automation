@@ -34,7 +34,13 @@ Use it whenever the user says anything like "set me up", "start using this repo"
    Never write keys or personal details into tracked files such as `config.yaml` or docs.
 8. **Be honest about failures.** If a command fails, show the important part of the error, explain it
    in plain words, and fix it or offer the next option.
-9. **Don't silently change the project's code.** If you find a bug in `src/` while onboarding, explain
+9. **These commands need internet access:** `pip install`, `onboard check-keys`, `onboard set-key`,
+   `init-notion-db`, `discover` and `sync-notion`. If your tool runs commands in a sandbox without
+   network access (Antigravity, Codex and others), run these with network access enabled **from the
+   first attempt** (for example Antigravity's `BypassSandbox`) instead of waiting for them to fail.
+   Offline failures look like `nodename nor servname provided`, `Name or service not known`, or
+   `No internet access`; they never mean the user's keys or settings are wrong.
+10. **Don't silently change the project's code.** If you find a bug in `src/` while onboarding, explain
    it and ask before editing. Any change stays uncommitted in the user's copy and can clash with their
    next `git pull`, so tell them which files you changed.
 
@@ -100,8 +106,10 @@ Do **not** offer `GEMINI_API_KEY`. Nothing uses it yet.
   `NOTION_API_KEY=ntn_…`), save, and say "done". Then run `PY -m src.cli onboard check-keys`. It tests
   each key online and prints only `verified`, `failed`, `missing` or `set (no online check)`, never the value.
 
-The command reports `verified online`, `online check FAILED` or `no online check`. If the check fails,
-say so and ask for the key again, because it was probably copied incompletely.
+The command reports `verified online`, `online check FAILED`, `no online check`, or `couldn't check: no
+internet access`. Only `FAILED` means the key is wrong; then ask for it again, because it was probably
+copied incompletely. `couldn't check` means the command had no network access: rerun it with network
+access (rule 9), and don't ask the user for a new key.
 
 Never repeat a key back in chat, never print `.env`, and never log a key.
 
@@ -117,8 +125,9 @@ If the user wants no extras: `PY -m src.cli onboard skip api_keys`
   2. Click `•••` (top right) → **Connections** → select the integration they created.
   3. Copy the page link (`•••` → **Copy link**) and paste it here.
 - Then run `PY -m src.cli init-notion-db --parent-page-id "<page link>"`
-  This creates the table and saves `NOTION_DATABASE_ID` to `.env` automatically. Share the table URL
-  it prints.
+  This creates the table and saves `NOTION_DATABASE_ID` to `.env` automatically. Tell the user the
+  table ("Automated Job Applications") now appears directly on the page they shared, and share the
+  table URL it prints.
 - If it fails, the command prints Notion's own error message. When it also shows the
   "Connections" tip (404, 401 or 403), the page wasn't shared with the integration, so repeat step 2.
   Any other message (for example a 400 `validation_error`) is a problem in the request, not the user's

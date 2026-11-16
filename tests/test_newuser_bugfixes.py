@@ -174,3 +174,100 @@ def test_tests_never_see_the_developers_local_config():
     assert src.config.local_config_path() != real_local
     # Shared defaults are what tests see, whatever roles the developer saved locally.
     assert "SDET" in src.config.load_settings().search_keywords
+
+
+# --- Antigravity run: sandbox without network, Notion table not visible, 50-job sync cap ---
+
+def test_notion_table_is_created_inline_so_it_shows_on_the_page():
+    sent: dict = {}
+
+    def fake_urlopen(req, timeout=None):
+        sent.update(json.loads(req.data.decode("utf-8")))
+        return _FakeResponse(json.dumps({"id": "db", "url": "u"}).encode("utf-8"))
+
+    with patch.object(notion_client.request, "urlopen", fake_urlopen):
+        notion_client.create_notion_job_database("a" * 32, api_token="ntn_fake_token")
+
+    assert sent["is_inline"] is True
+
+
+def test_key_check_offline_is_not_reported_as_failed(monkeypatch):
+    from src import onboarding
+
+    def offline(*a, **k):
+        raise _dns_failure()
+
+    monkeypatch.setattr(onboarding.urllib.request, "urlopen", offline)
+    assert onboarding.test_notion_key("ntn_real_looking_value") is None
+    assert onboarding.test_apify_token("apify_api_value") is None
+
+    def rejected(*a, **k):
+        raise _http_error(401, {"message": "API token is invalid."})
+
+    monkeypatch.setattr(onboarding.urllib.request, "urlopen", rejected)
+    assert onboarding.test_notion_key("ntn_wrong_value") is False
+
+
+def test_check_keys_says_unreachable_not_failed_when_offline(tmp_path, monkeypatch):
+    from src import onboard_steps, onboarding
+
+    (tmp_path / ".env").write_text("NOTION_API_KEY=ntn_value\n", encoding="utf-8")
+    monkeypatch.setattr(onboarding, "ENV_PATH", tmp_path / ".env")
+    monkeypatch.setitem(onboard_steps.SECRET_KEYS, "NOTION_API_KEY", lambda v: None)
+
+    status = onboard_steps.check_keys()["NOTION_API_KEY"]
+    assert status == onboard_steps.UNREACHABLE and "failed" not in status
+
+
+def test_offline_tier1_run_is_flagged_and_does_not_stamp_boards(tmp_path: Path):
+    db_file = tmp_path / "jobs.db"
+    init_db(db_file)
+    upsert_company("greenhouse", "a", db_path=db_file)
+    upsert_company("greenhouse", "b", db_path=db_file)
+    before = {r["slug"]: r["last_checked_at"] for r in list_companies(db_path=db_file)}
+    engine = JobDiscoveryEngine(settings=Settings(), db_path=db_file)
+
+    with patch("src.discovery.engine.fetch_greenhouse_jobs", side_effect=_dns_failure()):
+        engine.run_tier1_direct_apis(company_limit=10)
+
+    assert engine.network_unavailable is True
+    after = {r["slug"]: r["last_checked_at"] for r in list_companies(db_path=db_file)}
+    assert after == before  # nothing was searched, so nothing is marked as checked
+
+    # One reachable board means the network works: not flagged.
+    with patch("src.discovery.engine.fetch_greenhouse_jobs", side_effect=[_dns_failure(), []]):
+        engine.run_tier1_direct_apis(company_limit=10)
+    assert engine.network_unavailable is False
+
+
+def test_discover_offline_exits_with_clear_message_and_keeps_step_open(tmp_path: Path, monkeypatch):
+    from src import onboard_steps
+    from src.cli import app
+
+    monkeypatch.setattr(onboard_steps, "STATE_PATH", tmp_path / "state.json")
+    offline_result = {
+        "tier_counts": {}, "total_discovered": 0, "net_new_inserted": 0, "duplicates_prevented": 0,
+        "network_unavailable": True,
+    }
+    with patch("src.cli.init_db"), patch("src.cli.JobDiscoveryEngine") as engine_cls:
+        engine_cls.return_value.execute_all_tiers.return_value = offline_result
+        result = CliRunner().invoke(app, ["discover", "--tiers", "1"])
+
+    assert result.exit_code == 1
+    assert "No internet access" in result.output
+    assert onboard_steps.load_state().get("first_discovery") is None
+
+
+def test_discover_auto_sync_pushes_all_pending_jobs_not_just_50(tmp_path: Path):
+    db_file = tmp_path / "jobs.db"
+    init_db(db_file)
+    settings = Settings(notion_enabled=True, notion_auto_sync=True, notion_database_id="d" * 32, notion_api_token="ntn_x")
+    engine = JobDiscoveryEngine(settings=settings, db_path=db_file)
+
+    # Tier 1 is stubbed out so the test makes no network calls.
+    with patch.object(engine, "run_tier1_direct_apis", return_value=[]), \
+         patch("src.integrations.notion_client.sync_jobs_to_notion", return_value={"synced": 68}) as sync:
+        result = engine.execute_all_tiers(selected_tiers=[1], auto_harvest=False)
+
+    assert sync.call_args.kwargs["limit"] is None
+    assert result["notion_synced"] == 68

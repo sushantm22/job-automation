@@ -6,6 +6,7 @@ from urllib.error import HTTPError
 
 from ..config import Settings, load_settings
 from ..db import DB_PATH, get_connection, mark_company_checked, upsert_jobs
+from ..utils.net import never_reached_server
 from .apify_adapter import fetch_apify_naukri_jobs
 from .ashby import fetch_ashby_jobs
 from .base import JobRecord
@@ -33,6 +34,7 @@ class JobDiscoveryEngine:
         self.db_path = db_path
         self.registry = CompanyRegistry(db_path=self.db_path)
         self.registry_seeded = 0
+        self.network_unavailable = False
 
     def run_tier1_direct_apis(self, company_limit: int | None = 50) -> list[JobRecord]:
         """
@@ -42,6 +44,7 @@ class JobDiscoveryEngine:
         self.registry_seeded = self.registry.ensure_seeded()
         slugs_by_platform = self.registry.get_slugs_by_platform(limit=company_limit, stale_first=True)
         discovered: list[JobRecord] = []
+        polled = offline_failures = 0
 
         for platform, slugs in slugs_by_platform.items():
             for slug in slugs:
@@ -55,9 +58,11 @@ class JobDiscoveryEngine:
                     else:
                         continue
 
+                    polled += 1
                     discovered.extend(jobs)
                     mark_company_checked(platform, slug, job_count=len(jobs), db_path=self.db_path)
                 except HTTPError as err:
+                    polled += 1  # the server answered, so the network works
                     if err.code == 404:
                         # The board is gone (company left this ATS). Same rule as `validate-companies`:
                         # only an explicit 404 deactivates; network errors and rate limits never do.
@@ -67,10 +72,21 @@ class JobDiscoveryEngine:
                         logger.warning(f"[Tier 1: {platform}] Error polling {slug}: {err}")
                         mark_company_checked(platform, slug, db_path=self.db_path)
                 except Exception as err:
+                    polled += 1
+                    if never_reached_server(err):
+                        # Nothing was checked (offline / sandboxed), so don't stamp: the board keeps its
+                        # place in the rotation instead of being skipped next run unsearched.
+                        offline_failures += 1
+                        continue
                     logger.warning(f"[Tier 1: {platform}] Error polling {slug}: {err}")
                     # Still stamp the check so a failing board doesn't stay at the front of the rotation.
                     mark_company_checked(platform, slug, db_path=self.db_path)
 
+        self.network_unavailable = polled > 0 and offline_failures == polled
+        if offline_failures:
+            logger.warning(
+                f"[Tier 1] {offline_failures}/{polled} boards could not be reached (no internet access?)."
+            )
         logger.info(f"[Tier 1: Direct APIs] Total fetched: {len(discovered)} jobs")
         return discovered
 
@@ -253,7 +269,7 @@ class JobDiscoveryEngine:
         if self.settings.notion_enabled and self.settings.notion_auto_sync and self.settings.notion_database_id:
             try:
                 from ..integrations.notion_client import sync_jobs_to_notion
-                sync_res = sync_jobs_to_notion(db_path=self.db_path, limit=50)
+                sync_res = sync_jobs_to_notion(db_path=self.db_path, limit=None)
                 notion_synced = sync_res.get("synced", 0)
                 if notion_synced > 0:
                     logger.info(f"[Notion Sync] Automatically synced {notion_synced} new jobs to Notion table.")
@@ -268,6 +284,7 @@ class JobDiscoveryEngine:
             "duplicates_prevented": duplicates_prevented,
             "harvested_companies": harvested_count,
             "registry_seeded": self.registry_seeded,
+            "network_unavailable": self.network_unavailable,
             "notion_synced": notion_synced,
             "jobs": all_jobs,
         }

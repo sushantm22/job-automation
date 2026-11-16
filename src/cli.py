@@ -99,8 +99,17 @@ def discover(
     table.add_row("[bold magenta]Notion Synced[/bold magenta]", "Live Opportunities in Notion Table", f"[bold magenta]{result.get('notion_synced', 0)}[/bold magenta]")
     console.print(table)
 
-    from .onboard_steps import mark_step
-    mark_step("first_discovery")
+    if result.get("network_unavailable"):
+        console.print(
+            "\n[bold red]❌ No internet access:[/bold red] none of the job sources could be reached, so nothing "
+            "was searched. Check your connection (AI tools that sandbox commands: allow network access) and run "
+            "discover again."
+        )
+        raise typer.Exit(code=1)
+
+    if result.get("total_discovered", 0) > 0:
+        from .onboard_steps import mark_step
+        mark_step("first_discovery")
 
     if result.get("registry_seeded", 0) > 0:
         console.print(f"🌱 [bold green]First run:[/bold green] loaded {result['registry_seeded']} company boards from companies.yaml into your registry.")
@@ -512,7 +521,12 @@ def onboard_set_key(
     except ValueError as err:
         typer.echo(f"Error: {err}", err=True)
         raise typer.Exit(code=1)
-    check = {True: "verified online", False: "saved, but the online check FAILED (wrong or expired key?)", None: "saved (no online check for this key)"}[res["verified"]]
+    check = {
+        "verified": "verified online",
+        "failed": "saved, but the online check FAILED (wrong or expired key?)",
+        "set (no online check)": "saved (no online check for this key)",
+        "not checked": "saved (not checked)",
+    }.get(res["check"], f"saved, but {res['check']}")
     _emit(res, as_json, f"{res['saved']}: {check}")
 
 
