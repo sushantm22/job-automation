@@ -134,3 +134,13 @@ def test_prune_old_command_closes_and_updates_notion(tmp_path: Path, monkeypatch
     assert result.exit_code == 0, result.output
     assert "Marked 1 jobs older than 30 days" in result.output
     assert notion.call_args.kwargs["db_path"] == db
+
+
+def test_close_stale_jobs_closes_every_backlog_row_not_just_the_first(tmp_path: Path):
+    # Regression: a loop variable shadowed the `first_seen` flag, so only the first undated
+    # backlog row was closed (seen in the test folder: 1 of 1,122).
+    db = tmp_path / "jobs.db"
+    init_db(db)
+    upsert_jobs([{"source": "jobhive:workday", "title": str(i), "url": f"wd-{i}"} for i in range(25)]
+                + [{"source": "jobhive:oracle", "title": "o", "url": "or-1"}], db_path=db)
+    assert close_stale_jobs(30, db_path=db) == 26

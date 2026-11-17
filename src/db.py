@@ -261,8 +261,8 @@ def close_stale_jobs(max_days: int, db_path: Path = DB_PATH, first_seen: bool = 
             if r["posted_at"]:
                 old = is_too_old(r["posted_at"], max_days, now)
             elif first_seen and uses_first_seen(r["source"] or ""):
-                first_seen = admitted.get(r["url"])
-                old = first_seen is None or is_too_old(first_seen, max_days, now)
+                seen_on = admitted.get(r["url"])  # not `first_seen`: that name is the on/off parameter
+                old = seen_on is None or is_too_old(seen_on, max_days, now)
             else:
                 old = False
             if old:
