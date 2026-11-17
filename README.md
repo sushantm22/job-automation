@@ -107,7 +107,7 @@ The project is organized into a few main areas:
 
 Controls the default job search and execution settings, such as:
 
-- keywords
+- keywords (empty by default: each user sets their own job titles during onboarding, saved to `config.local.yaml`)
 - locations
 - excluded job terms
 - max applications per day
@@ -161,7 +161,7 @@ Before the app is useful, fill in the values in `data/profile.json` that are act
 #### Experience and skills
 
 - `experience` with at least a few past roles and companies
-- `skills` such as Python, backend engineering, APIs, databases, distributed systems, etc.
+- `skills` relevant to your target roles (for example negotiation, CRM and forecasting for sales; Python and APIs for engineering)
 - `education` if the application asks for academic history
 - `languages` if relevant to the role or region
 

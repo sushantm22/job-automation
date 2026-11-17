@@ -213,19 +213,19 @@ smartrecruiters:
 - WesternDigital
 enterprise_portals:
 - name: Google
-  url: https://www.google.com/about/careers/applications/jobs/results?q=software+engineer+india
+  url: "https://www.google.com/about/careers/applications/jobs/results?q={query}+india"
 - name: Apple
-  url: https://jobs.apple.com/en-in/search?search=software
+  url: "https://jobs.apple.com/en-in/search?search={query}"
 - name: Uber
   url: https://www.uber.com/global/en/careers/list/?location=IND--Bangalore
 - name: Netflix
-  url: https://explore.jobs.netflix.net/careers?query=software
+  url: "https://explore.jobs.netflix.net/careers?query={query}"
 - name: Microsoft
-  url: https://careers.microsoft.com/us/en/search-results?keywords=software%20engineer&location=India
+  url: "https://careers.microsoft.com/us/en/search-results?keywords={query}&location=India"
 - name: Amazon
-  url: https://www.amazon.jobs/en/search?base_query=software+engineer&loc_query=India
+  url: "https://www.amazon.jobs/en/search?base_query={query}&loc_query=India"
 - name: Meta
-  url: https://www.metacareers.com/jobs?q=software%20engineer&location[0]=India
+  url: "https://www.metacareers.com/jobs?q={query}&location[0]=India"
 - name: Flipkart
   url: https://www.flipkartcareers.com/#!/joblist
 - name: Swiggy
@@ -239,16 +239,16 @@ enterprise_portals:
 - name: CRED
   url: https://careers.cred.club/openings
 - name: Walmart
-  url: https://careers.walmart.com/results?q=software%20engineer&page=1&sort=rank&jobCity=India
+  url: "https://careers.walmart.com/results?q={query}&page=1&sort=rank&jobCity=India"
 - name: Adobe
-  url: https://careers.adobe.com/us/en/search-results?keywords=software%20engineer&location=India
+  url: "https://careers.adobe.com/us/en/search-results?keywords={query}&location=India"
 - name: Salesforce
-  url: https://careers.salesforce.com/en/jobs/?search=software+engineer&location=India
+  url: "https://careers.salesforce.com/en/jobs/?search={query}&location=India"
 - name: SAP
-  url: https://jobs.sap.com/search/?q=software+engineer&locationsearch=India
+  url: "https://jobs.sap.com/search/?q={query}&locationsearch=India"
 - name: Atlassian
-  url: https://www.atlassian.com/company/careers/all-jobs?location=India&search=engineer
+  url: "https://www.atlassian.com/company/careers/all-jobs?location=India&search={query}"
 - name: Spotify
-  url: https://www.lifeatspotify.com/jobs?l=india&q=engineer
+  url: "https://www.lifeatspotify.com/jobs?l=india&q={query}"
 - name: PayPal
-  url: https://paypal.eightfold.ai/careers?query=software%20engineer&location=India
+  url: "https://paypal.eightfold.ai/careers?query={query}&location=India"

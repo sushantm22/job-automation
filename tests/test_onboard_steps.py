@@ -61,10 +61,21 @@ def test_set_search_writes_local_override_not_shared_config(sandbox: Path):
     assert steps.get_status()["next_step"] == "api_keys"
 
 
-def test_set_search_without_options_keeps_defaults_and_completes_step(sandbox: Path):
-    res = steps.set_search()
+def test_set_search_without_any_roles_is_refused_and_step_stays_open(sandbox: Path):
+    # The project ships no roles, so "keep the defaults" is not possible on a fresh install.
+    with pytest.raises(ValueError, match="No job titles"):
+        steps.set_search()
+    with pytest.raises(ValueError, match="No job titles"):
+        steps.set_search(locations="Pune")
+    status = steps.get_status()["steps"]["search"]
+    assert status["done"] is False and status["roles"] == []
     assert not (sandbox / "config.local.yaml").exists()
-    assert "SDET" in res["roles"]
+
+
+def test_set_search_keeps_saved_roles_and_completes_step(sandbox: Path):
+    steps.set_search(roles="Sales Manager, Key Account Manager")
+    res = steps.set_search()  # later: "keep these"
+    assert res["roles"] == ["Sales Manager", "Key Account Manager"]
     assert steps.get_status()["steps"]["search"]["done"] is True
 
 
@@ -120,7 +131,7 @@ def test_set_profile_fills_fields_and_copies_external_resume(sandbox: Path, tmp_
 
 
 def test_walkthrough_reaches_complete(sandbox: Path):
-    steps.set_search()
+    steps.set_search(roles="SDET")
     steps.skip_step("api_keys")
     assert steps.get_status()["next_step"] == "notion"
     steps.skip_step("notion")

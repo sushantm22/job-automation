@@ -290,15 +290,27 @@ def run_interactive_onboarding() -> None:
     current_keywords = current_settings.search_keywords
     current_locations = current_settings.locations
 
-    console.print(f"Current Target Roles: [cyan]{', '.join(current_keywords)}[/cyan]")
     console.print(f"Current Locations: [cyan]{', '.join(current_locations)}[/cyan]")
-
-    if Confirm.ask("\nWould you like to customize your target roles and locations?", default=False):
-        new_roles_input = Prompt.ask(
-            "Enter comma-separated target roles",
-            default=", ".join(current_keywords),
+    if current_keywords:
+        console.print(f"Current Target Roles: [cyan]{', '.join(current_keywords)}[/cyan]")
+        customize = Confirm.ask("\nWould you like to customize your target roles and locations?", default=False)
+    else:
+        console.print(
+            "No job titles saved yet. Enter the roles you want, for example: "
+            "[cyan]Sales Manager, Key Account Manager, Marketing Manager, HR Business Partner, SDET[/cyan]"
         )
-        new_keywords = [r.strip() for r in new_roles_input.split(",") if r.strip()]
+        customize = True  # no shipped defaults, so roles must be entered
+
+    if customize:
+        new_keywords: list[str] = []
+        while not new_keywords:
+            new_roles_input = Prompt.ask(
+                "Enter comma-separated target roles",
+                default=", ".join(current_keywords) if current_keywords else ...,
+            )
+            new_keywords = [r.strip() for r in new_roles_input.split(",") if r.strip()]
+            if not new_keywords:
+                console.print("[yellow]Please enter at least one job title.[/yellow]")
 
         new_locs_input = Prompt.ask(
             "Enter comma-separated target locations",
@@ -309,7 +321,7 @@ def run_interactive_onboarding() -> None:
         set_search(roles=", ".join(new_keywords), locations=", ".join(new_locations))
         console.print("[green]✔ Saved to config.local.yaml (your personal settings, gitignored).[/green]")
     else:
-        set_search()  # keeping the defaults counts as a decision
+        set_search()  # keeping the saved roles counts as a decision
 
     # Step 2: Candidate Profile
     console.print("\n[bold green]Step 2: Candidate Profile[/bold green]")

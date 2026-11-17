@@ -73,6 +73,13 @@ def discover(
 
     console = Console()
     settings = load_settings()
+    if not settings.search_keywords:
+        typer.echo(
+            "No job titles are set yet, so there is nothing to search for.\n"
+            "Set them with:  python -m src.cli onboard set-search --roles \"Sales Manager, Key Account Manager\"\n"
+            "(or tell your AI assistant which job titles you want)."
+        )
+        raise typer.Exit(code=1)
     init_db()  # idempotent: a new user can run discover without running init first
     engine = JobDiscoveryEngine(settings=settings)
 
@@ -536,12 +543,12 @@ def onboard_status(as_json: bool = typer.Option(False, "--json", help="Machine-r
 
 @onboard_app.command("set-search")
 def onboard_set_search(
-    roles: str = typer.Option(None, help="Comma-separated job titles, e.g. 'SDET, QA Lead'"),
+    roles: str = typer.Option(None, help="Comma-separated job titles, e.g. 'Sales Manager, Key Account Manager'"),
     locations: str = typer.Option(None, help="Comma-separated locations, e.g. 'India, Remote, Pune'"),
     exclude: str = typer.Option(None, help="Comma-separated words that reject a job, e.g. 'intern, unpaid'"),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Save target roles/locations to config.local.yaml (gitignored). Omit all options to keep the defaults."""
+    """Save target roles/locations to config.local.yaml (gitignored). Roles are required the first time; later, omit all options to keep what is saved."""
     from .onboard_steps import set_search
 
     try:

@@ -1,5 +1,7 @@
 search:
-  keywords: ["SDET Lead", "Senior SDET", "AI SDET", "Senior Software Engineer in Test", "Software Engineer in Test", "SDET", "QA Automation Engineer", "QA Lead", "QA Manager"]
+  # No roles are shipped: each person sets their own job titles during onboarding
+  # (saved to config.local.yaml, which is gitignored). Discovery won't run until they exist.
+  keywords: []
   locations: ["India", "Remote", "Bengaluru", "Bangalore", "Hyderabad", "Pune", "Mumbai", "Gurgaon", "Gurugram", "Noida", "Delhi", "Chennai"]
   exclude_keywords: ["intern", "unpaid"]
   min_match_score: 70

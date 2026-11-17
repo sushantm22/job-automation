@@ -6,9 +6,11 @@ import re
 from pathlib import Path
 from typing import Any
 from urllib import request
+from urllib.parse import quote
 
 import yaml
 
+from ..scoring import title_matches_roles
 from .base import JobRecord, strip_html
 
 logger = logging.getLogger(__name__)
@@ -52,14 +54,30 @@ EXTRACTION_SCHEMA = {
 }
 
 
+# Used for the markdown fallback only when the user has no roles: link texts that look like job titles.
+GENERIC_JOB_WORDS = (
+    "engineer", "developer", "lead", "architect", "analyst", "specialist", "manager", "executive",
+    "officer", "associate", "consultant", "representative", "head", "director", "qa", "sdet",
+)
+
+
+def build_portal_url(url: str, roles: list[str] | None = None) -> str:
+    """Fills the `{query}` placeholder in a portal URL with the user's first role (URL-encoded)."""
+    if "{query}" not in url:
+        return url
+    first_role = next((r.strip() for r in (roles or []) if r and r.strip()), "")
+    return url.replace("{query}", quote(first_role, safe=""))
+
+
 def parse_firecrawl_extracted_jobs(
     data: dict[str, Any],
     default_company: str = "Enterprise Portal",
     base_url: str = "",
+    roles: list[str] | None = None,
 ) -> list[JobRecord]:
     """
     Parses structured JSON extraction returned by Firecrawl or extracts
-    job links from scraped markdown.
+    job links from scraped markdown (keeping only links whose text matches the user's roles).
     """
     records: list[JobRecord] = []
     extract_data = data.get("extract") or {}
@@ -70,7 +88,7 @@ def parse_firecrawl_extracted_jobs(
         for item in jobs_list:
             if not isinstance(item, dict):
                 continue
-            title = str(item.get("title") or "Engineering Role").strip()
+            title = str(item.get("title") or "").strip()
             url = str(item.get("url") or "").strip()
             if not url or len(title) < 2:
                 continue
@@ -105,10 +123,11 @@ def parse_firecrawl_extracted_jobs(
         for link_text, link_url in link_matches:
             clean_title = link_text.strip()
             # Filter out non-job navigation links
-            if any(
-                term in clean_title.lower()
-                for term in ["engineer", "developer", "lead", "architect", "analyst", "specialist", "manager", "qa", "sdet"]
-            ):
+            if roles:
+                is_job_link = title_matches_roles(clean_title, roles)
+            else:
+                is_job_link = any(term in clean_title.lower() for term in GENERIC_JOB_WORDS)
+            if is_job_link:
                 records.append(
                     JobRecord(
                         source=f"firecrawl:{default_company.lower()}",
@@ -128,6 +147,7 @@ def scrape_portal_with_firecrawl(
     company_name: str,
     api_key: str,
     timeout: float = 60.0,
+    roles: list[str] | None = None,
 ) -> list[JobRecord]:
     """
     Scrapes a single enterprise portal using Firecrawl's scrape & extract endpoint.
@@ -140,12 +160,14 @@ def scrape_portal_with_firecrawl(
         "User-Agent": "Automate-Applications/1.0",
     }
 
+    wanted = [r.strip() for r in (roles or []) if r and r.strip()][:10]
+    kind = f"job listings matching or close to these roles: {', '.join(wanted)}" if wanted else "job listings"
     payload = {
         "url": portal_url,
         "formats": ["extract", "markdown"],
         "extract": {
             "prompt": (
-                f"Extract all open technology, engineering, developer, and data job listings "
+                f"Extract all open {kind} "
                 f"for {company_name} in India or Remote, including title, location, direct application url, and description."
             ),
             "schema": EXTRACTION_SCHEMA,
@@ -166,6 +188,7 @@ def scrape_portal_with_firecrawl(
                     res_data["data"],
                     default_company=company_name,
                     base_url=portal_url,
+                    roles=roles,
                 )
                 logger.info(
                     f"[Tier 4: Firecrawl] Extracted {len(jobs)} postings from {company_name} ({portal_url})"
@@ -193,6 +216,7 @@ def fetch_firecrawl_portal_jobs(
     timeout: float = 60.0,
     budget: int = 10,
     covered_companies: set[str] | None = None,
+    roles: list[str] | None = None,
 ) -> list[JobRecord]:
     """
     Executes Tier 4 enterprise portal scraping as a smart fallback.
@@ -206,6 +230,7 @@ def fetch_firecrawl_portal_jobs(
         timeout: HTTP timeout per portal.
         budget: Maximum number of portals to scrape per run (1 credit each).
         covered_companies: Set of lowercase company names already found in Tiers 1-2.
+        roles: The user's job titles. The first one fills `{query}` in portal URLs; all guide extraction.
     """
     key = (api_key or "").strip()
     if not key:
@@ -238,10 +263,11 @@ def fetch_firecrawl_portal_jobs(
             continue
 
         portal_jobs = scrape_portal_with_firecrawl(
-            portal_url=portal_url,
+            portal_url=build_portal_url(portal_url, roles),
             company_name=company_name,
             api_key=key,
             timeout=timeout,
+            roles=roles,
         )
         credits_used += 1
         all_records.extend(portal_jobs)

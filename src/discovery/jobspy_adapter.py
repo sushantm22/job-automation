@@ -61,7 +61,7 @@ def fetch_jobspy_jobs(
     Scrapes jobs across job boards (Naukri, LinkedIn, Indeed, Glassdoor) targeting India and Remote.
     
     Args:
-        keywords: Search term or list of search terms (e.g. ['backend engineer', 'python developer'])
+        keywords: Search term or list of search terms (e.g. ['Sales Manager', 'Brand Manager'])
         locations: Target location or list of locations (default 'India')
         sites: List of job boards (default ['naukri', 'linkedin', 'indeed', 'glassdoor'])
         results_wanted: Number of results requested per board
@@ -81,7 +81,8 @@ def fetch_jobspy_jobs(
         keywords_list = [k for k in keywords if k]
 
     if not keywords_list:
-        keywords_list = ["software engineer"]
+        logger.info("[Tier 2: JobSpy] No job titles are set. Skipping Tier 2.")
+        return []
 
     # Google Jobs is left out: since Jan 2025 Google Search only serves results to clients that run
     # JavaScript, so JobSpy's plain-HTTP Google scraper always returns "no job data returned".

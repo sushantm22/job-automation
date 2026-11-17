@@ -132,7 +132,8 @@ def test_engine_runs_jobhive_in_tier1_and_reset_db_clears_its_cache(tmp_path: Pa
 def test_jobhive_can_be_disabled(tmp_path: Path):
     db_file = tmp_path / "jobs.db"
     init_db(db_file)
-    engine = JobDiscoveryEngine(settings=Settings(jobhive_enabled=False, notion_enabled=False), db_path=db_file)
+    engine = JobDiscoveryEngine(settings=Settings(jobhive_enabled=False, notion_enabled=False,
+                                                  search_keywords=["Sales Manager"]), db_path=db_file)
     with patch.object(engine, "run_tier1_direct_apis", return_value=[]), \
          patch.object(engine, "run_tier1_jobhive") as hive:
         engine.execute_all_tiers(selected_tiers=[1], auto_harvest=False)

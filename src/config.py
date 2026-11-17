@@ -46,7 +46,7 @@ class Settings(BaseSettings):
 
     llm_provider: str = Field(default="gemini", validation_alias=AliasChoices("LLM_PROVIDER", "llm_provider"))
     llm_model: str = Field(default="gemini-2.5-flash", validation_alias=AliasChoices("LLM_MODEL", "llm_model"))
-    search_keywords: list[str] = Field(default_factory=lambda: ["backend engineer", "python developer"])
+    search_keywords: list[str] = Field(default_factory=list)  # no shipped roles: set per user (config.local.yaml)
     locations: list[str] = Field(default_factory=lambda: ["Remote", "Bengaluru"])
     exclude_keywords: list[str] = Field(default_factory=lambda: ["intern", "unpaid", "10+ years"])
     min_match_score: int = 70
@@ -121,7 +121,7 @@ def load_settings(config_path: Path = CONFIG_PATH) -> Settings:
     tiers_cfg = discovery_cfg.get("tiers", {})
 
     merged: dict[str, Any] = {
-        "search_keywords": search_cfg.get("keywords", ["backend engineer", "python developer"]),
+        "search_keywords": search_cfg.get("keywords") or [],
         "locations": search_cfg.get("locations", ["Remote", "Bengaluru"]),
         "exclude_keywords": search_cfg.get("exclude_keywords", ["intern", "unpaid", "10+ years"]),
         "min_match_score": search_cfg.get("min_match_score", 70),

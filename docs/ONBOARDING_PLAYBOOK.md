@@ -90,16 +90,44 @@ Then greet the user with a short plan, for example:
 
 ## Step `search`: Target roles and locations
 
-Status shows the current `roles`, `locations` and `exclude`, plus `source`. When `source` is
-`config.yaml (shared defaults)`, those are the project's example values (SDET/QA roles in India),
-not the user's own choices.
+This works for **any role**, technical or not: Sales Manager, Marketing Manager, HR Business Partner,
+Finance Manager, Operations, Customer Success, SDET and so on. **No roles are shipped as defaults.**
+Until the user gives you theirs, `onboard status` shows `roles: []`, `onboard set-search` refuses to
+finish, and `discover` refuses to run.
 
-Ask: *"Which job titles should I search for, and where? Currently: <roles> in <locations>. Keep
-these, or tell me yours."* Suggest including seniority variants (e.g. "Backend Engineer, Senior
-Backend Engineer").
+Status shows the current `roles`, `locations` and `exclude`, plus `source`.
 
-- Keep the current values: `PY -m src.cli onboard set-search`
-- New values: `PY -m src.cli onboard set-search --roles "Backend Engineer, Python Developer" --locations "India, Remote, Pune"`
+- **`roles` is empty (a new user):** ask *"Which job titles should I search for, and where?"* and give
+  examples across functions, such as "Sales Manager, Key Account Manager", "Marketing Manager",
+  "HR Business Partner", "Financial Analyst", "SDET". Then suggest related titles from the table
+  below and let the user confirm the list. Locations default to India and the main cities plus
+  Remote; ask only if they want others.
+- **`roles` already saved:** ask *"Currently: <roles> in <locations>. Keep these, or tell me yours?"*
+
+How titles are matched (tell the user in one short paragraph, it avoids surprises):
+- Only the job **title** counts, never the description.
+- Seniority is ignored, so "Sales Manager" also finds Senior, Area and Regional Sales Manager. If
+  they don't want a level, add a distinctive word to `--exclude` (for example `--exclude "intern, trainee"`).
+  Exclude words are checked in the title, location **and description**, so avoid common words.
+- Common abbreviations are understood (Sr/Mgr/Asst, BDM, KAM, HRBP, VP, GM) and so are Indian title
+  formats like "Manager - Sales" and "Head of Sales".
+- Whole words only: "Sales" does not match "Salesforce Developer".
+
+| If they search for | Suggest also |
+|---|---|
+| Sales Manager | Business Development Manager, Key Account Manager, Account Manager, Territory Manager, Channel Sales Manager, Sales Head |
+| Marketing Manager | Brand Manager, Growth Manager, Marketing Lead, Digital Marketing Manager |
+| HR Manager | HR Business Partner, Talent Acquisition Manager, Recruiter |
+| Finance Manager | Financial Analyst, FP&A Manager, Accounts Manager |
+| Operations Manager | Program Manager, Supply Chain Manager, Project Manager |
+| Customer Success Manager | Account Manager, Relationship Manager, Client Partner |
+
+Each role adds about 3 job-board searches per run, so **3 to 8 roles** is a good range. The **first
+role** is also the search term on the big-company career sites (Google, Amazon, Microsoft and
+others, used only if a Firecrawl key is added), so put the user's main title first.
+
+- Save the roles: `PY -m src.cli onboard set-search --roles "Sales Manager, Key Account Manager, Business Development Manager" --locations "India, Remote, Pune"`
+- Keep what is already saved: `PY -m src.cli onboard set-search` (fails on a fresh install: there is nothing to keep)
 - Optional `--exclude "intern, unpaid"`: words that reject a job.
 
 Choices are saved to `config.local.yaml` (gitignored). `config.yaml` is never modified.
@@ -194,8 +222,9 @@ Afterwards:
   location). JobHive jobs have no posting date, and Oracle-hosted employers may show internal codes
   (e.g. "Hcbt") instead of company names.
 - **If 0 matched:** the role titles are probably too narrow. Suggest broader or additional titles and
-  go back to the `search` step. The filter keeps only jobs whose **title** matches a role (or core QA
-  terms), located in India or remote.
+  go back to the `search` step. The filter keeps only jobs whose **title** matches a role (see the
+  matching rules in the `search` step), located in India or remote. Seniority is ignored, and the
+  description is never used.
 
 ---
 

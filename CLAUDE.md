@@ -1,7 +1,7 @@
 # CLAUDE.md - Instructions for Claude Code & Anthropic Agents
 
 ## Project Overview
-`Automate-Applications` is an automated, zero-human-intervention job discovery, deduplication, scoring, and application tracking platform for senior tech roles (SDET Lead, Senior SDET, QA Automation, Engineering in Test) in **India and Remote**.
+`Automate-Applications` is an automated, zero-human-intervention job discovery, deduplication, scoring, and application tracking platform for **any role, technical or business** (Sales Manager, Marketing, HR, Finance, SDET, ...) in **India and Remote**. Each user sets their own roles during onboarding; they are saved in `config.local.yaml` (gitignored) and nothing is shipped as a default.
 
 > **Comprehensive Knowledge Transfer:** For full historical context, solved issues, and roadmap details, read [`docs/KNOWLEDGE_TRANSFER.md`](docs/KNOWLEDGE_TRANSFER.md).
 
@@ -78,7 +78,7 @@ PYTHONPATH=. .venv/bin/pytest -v     # Run full automated test suite
 - `src/discovery/registry.py`, `harvester.py`: Company board registry (SQLite), auto-harvesting, and `companies.yaml` sync.
 - `src/discovery/companies.yaml`: 140+ ATS company slugs + 20 custom enterprise portals.
 - `src/integrations/notion_client.py`: Notion API database client with table formatting & duplicate guardrails.
-- `src/scoring.py`: Strict role title matching and foreign-exclusion geo-filtering (`hard_filter_jobs`).
+- `src/scoring.py`: Role-agnostic title matching (`title_matches_roles`: whole words, seniority ignored, abbreviations like BDM/KAM/Sr/Mgr, "Manager - Sales" and "Head of Sales" orderings; titles only, never descriptions) and foreign-exclusion geo-filtering (`hard_filter_jobs`).
 - `src/config.py`: Pydantic settings from `config.yaml`, overridden by `config.local.yaml` (gitignored) and `.env` (`firecrawl_daily_budget: 10`).
 - `src/onboard_steps.py`: Non-interactive onboarding steps behind the `onboard ...` commands.
 - `src/onboarding.py`: Interactive setup wizard, `.env` helpers, and pre-commit secret scanner.
@@ -100,4 +100,4 @@ PYTHONPATH=. .venv/bin/pytest -v     # Run full automated test suite
 ## Next Development Priorities (Stage 2)
 1. **Form Filling & Application Automation:** Test and wire `src/apply/` adapters (Greenhouse, Lever, Ashby) with `src/answer_bank.py` and `src/answer_resolution.py` in dry-run review mode.
 2. **Browser-Use Fallback Agent:** Enhance `src/apply/fallback_agent.py` for custom application portals.
-3. **Resume Tailoring:** Implement real tailoring in `src/tailoring.py` to highlight matching SDET skills per job posting.
+3. **Resume Tailoring:** Implement real tailoring in `src/tailoring.py` to highlight the skills that match each job posting.

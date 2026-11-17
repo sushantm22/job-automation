@@ -207,6 +207,7 @@ class JobDiscoveryEngine:
             api_key=api_key,
             budget=budget,
             covered_companies=covered_companies,
+            roles=self.settings.search_keywords,
         )
 
     def _apply_freshness(self, jobs: list[JobRecord]) -> tuple[list[JobRecord], int, int]:
@@ -237,6 +238,12 @@ class JobDiscoveryEngine:
         Executes all selected tiers, feeds discovered ATS links back into the Tier 1 registry,
         and saves deduplicated postings to the SQLite ledger.
         """
+        if apply_hard_filter and not self.settings.search_keywords:
+            # With no roles the filter keeps everything, which would flood the database with
+            # ~100k JobHive rows. Roles are per user and set during onboarding.
+            raise ValueError(
+                'No job titles are set. Run: python -m src.cli onboard set-search --roles "Sales Manager, ..."'
+            )
         active_tiers = set(selected_tiers or [1, 2, 3, 4])
         self.jobhive_snapshots = {}
         all_jobs: list[JobRecord] = []

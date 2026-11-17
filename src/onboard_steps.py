@@ -183,6 +183,11 @@ def set_search(
             search[key] = items
     if not search:
         local.pop("search")
+    if not (search.get("keywords") or load_settings(config_path).search_keywords):
+        raise ValueError(
+            'No job titles saved yet. Ask the user which roles to search for, then run: '
+            'onboard set-search --roles "Sales Manager, Key Account Manager"'
+        )
     if local:
         header = "# Your personal overrides of config.yaml (gitignored). Edit freely.\n"
         local_path.write_text(header + yaml.safe_dump(local, sort_keys=False, allow_unicode=True), encoding="utf-8")

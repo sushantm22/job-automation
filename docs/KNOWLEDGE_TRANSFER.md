@@ -12,8 +12,8 @@
 `Automate-Applications` is an automated, zero-human-intervention job discovery, deduplication, scoring, and application tracking platform designed for senior tech roles in **India (Bengaluru, Hyderabad, Pune, Mumbai, Gurgaon, Noida, Chennai, Delhi) and Remote**.
 
 ### Primary Target Candidate Profile
-- **Target Roles:** SDET Lead, Senior SDET, AI SDET, Senior Software Engineer in Test, QA Automation Engineer, QA Lead, QA Manager.
-- **Strict Exclusions:** Internships, unpaid roles, junior/entry roles, non-tech corporate roles (e.g. Sales, Marketing, HR, Finance).
+- **Target Roles:** Set per user during onboarding (saved in the gitignored `config.local.yaml`); no roles are shipped as defaults. The platform works for any role, technical or business (the original user's roles were SDET Lead, Senior SDET, QA Automation Engineer, QA Lead).
+- **Exclusions:** Whatever the user adds to `exclude_keywords` (by default internships and unpaid roles). Jobs are matched on the title only, with seniority ignored, so users who don't want a level exclude it explicitly.
 - **Locations:** India & Worldwide/India-eligible Remote. Foreign-only locations (US, UK, Canada, Europe) are strictly filtered out.
 
 ---
@@ -195,6 +195,6 @@ When continuing development with Claude Code, here are the immediate next milest
 2. **Browser-Use Fallback Agent:**
    - Enhance `src/adapters/browser_use_fallback.py` using Playwright or BrowserBase for non-standard enterprise career portals.
 3. **Resume Tailoring per Job Description:**
-   - Implement `src/tailoring/resume.py` to highlight matching SDET skills (Selenium, Playwright, Cypress, PyTest, CI/CD, Performance Testing) per job posting.
+   - Implement `src/tailoring/resume.py` to highlight the user's skills that match each job posting (for example Selenium and Playwright for an SDET, or CRM and negotiation for a Sales Manager).
 4. **Scheduled Automations:**
    - Add a cron job or scheduled automation to run `python -m src.cli discover` daily at 9:00 AM IST.

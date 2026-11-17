@@ -173,8 +173,9 @@ def test_tier1_deactivates_board_on_404_but_not_on_other_errors(tmp_path: Path):
 def test_tests_never_see_the_developers_local_config():
     real_local = src.config.CONFIG_PATH.with_name("config.local.yaml")
     assert src.config.local_config_path() != real_local
-    # Shared defaults are what tests see, whatever roles the developer saved locally.
-    assert "SDET" in src.config.load_settings().search_keywords
+    # Shared defaults are what tests see, whatever roles the developer saved locally. The project
+    # ships no roles, so this is empty unless the developer's own config.local.yaml leaked in.
+    assert src.config.load_settings().search_keywords == []
 
 
 # --- Antigravity run: sandbox without network, Notion table not visible, 50-job sync cap ---
@@ -252,7 +253,8 @@ def test_discover_offline_exits_with_clear_message_and_keeps_step_open(tmp_path:
         "tier_counts": {}, "total_discovered": 0, "net_new_inserted": 0, "duplicates_prevented": 0,
         "network_unavailable": True,
     }
-    with patch("src.cli.init_db"), patch("src.cli.JobDiscoveryEngine") as engine_cls:
+    with patch("src.cli.init_db"), patch("src.cli.JobDiscoveryEngine") as engine_cls, \
+         patch("src.cli.load_settings", return_value=Settings(search_keywords=["Sales Manager"])):
         engine_cls.return_value.execute_all_tiers.return_value = offline_result
         result = CliRunner().invoke(app, ["discover", "--tiers", "1"])
 
@@ -268,7 +270,7 @@ def test_discover_notion_sync_is_capped_per_run_and_reports_what_is_waiting(tmp_
     init_db(db_file)
     upsert_jobs([{"source": "t", "title": f"Job {i}", "url": f"https://x/{i}"} for i in range(5)], db_path=db_file)
     base = dict(notion_enabled=True, notion_auto_sync=True, notion_database_id="d" * 32, notion_api_token="ntn_x",
-                jobhive_enabled=False)
+                jobhive_enabled=False, search_keywords=["Sales Manager"])
 
     engine = JobDiscoveryEngine(settings=Settings(**base, notion_max_sync_per_run=200), db_path=db_file)
     with patch.object(engine, "run_tier1_direct_apis", return_value=[]), \

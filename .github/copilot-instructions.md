@@ -1,7 +1,7 @@
 # GitHub Copilot Repository Context & Guidelines
 
 ## Overview
-This repository (`Automate-Applications`) is an automated, zero-human-intervention job application discovery and tracking pipeline for software engineers, SDETs, and tech professionals.
+This repository (`Automate-Applications`) is an automated, zero-human-intervention job application discovery and tracking pipeline for any role, technical or business, in India and Remote. Each user sets their own job titles during onboarding.
 
 ## Onboarding & everyday use (read first)
 
