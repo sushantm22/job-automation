@@ -22,6 +22,9 @@ contains the exact commands, what to ask, and how to handle errors.
    `.env` themselves. Never echo a key back or print `.env`.
 6. **Personal data stays out of git:** `.env`, `config.local.yaml`, `data/profile.json` and resumes
    are gitignored. Never write them into tracked files.
+7. **Never end a reply by announcing a command.** If you say "I'm running the job search now", the
+   same reply must run it. Start `discover` and `sync-notion` (several minutes each) as background
+   terminal commands, then check their output about once a minute and report progress in chat.
 
 ## After setup
 The user can just ask "find new jobs", "show my jobs" or "change my roles", and you run the matching

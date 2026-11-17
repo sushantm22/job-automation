@@ -18,4 +18,4 @@ Core rules, in short:
 - After each step run `.venv/bin/python -m src.cli onboard status --json` and continue with `next_step`.
 - Secrets go to `.env` via stdin (`printf '%s' '<KEY>' | .venv/bin/python -m src.cli onboard set-key NAME`)
   or the user adds them to `.env` themselves, after which you run `onboard check-keys`. Never echo a key or print `.env`.
-- Give `discover` a long timeout (around 10 minutes), since tier 2 scrapes several job sites.
+- Run `discover` in the same reply you announce it, with `run_in_background`, and check its output about once a minute (tier 2 scrapes several job sites and can take 5–10 minutes). Run `--tiers 1` and then `--tiers 2` as the playbook describes.

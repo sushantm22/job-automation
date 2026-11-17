@@ -46,6 +46,12 @@ Use it whenever the user says anything like "set me up", "start using this repo"
 10. **Don't silently change the project's code.** If you find a bug in `src/` while onboarding, explain
    it and ask before editing. Any change stays uncommitted in the user's copy and can clash with their
    next `git pull`, so tell them which files you changed.
+11. **Never end a reply by announcing a command.** If you write "I'm running the job search now", that
+   same reply must contain the command. A reply that only announces it leaves the user waiting
+   with nothing running. For commands that take minutes (`discover`, `sync-notion`), start them in
+   the background if your tool allows it (Copilot: run in terminal as a background command; Claude
+   Code: `run_in_background`), then check the output about once a minute and tell the user how far
+   it has got. Otherwise run them in the foreground with a timeout of about 15 minutes.
 
 ---
 
@@ -142,12 +148,18 @@ If the user wants no extras: `PY -m src.cli onboard skip api_keys`
 
 ## Step `first_discovery`: First job search
 
-Say it takes a few minutes. Then run the free sources:
+Run the free sources **in this same reply** (rule 11), in two parts so results reach the user
+(and Notion) sooner and each command stays short:
 
-`PY -m src.cli discover --tiers 1,2`
+1. `PY -m src.cli discover --tiers 1`: company job boards and the JobHive dataset (a few minutes).
+   Summarize the results, then go straight on to part 2 in the same reply without waiting for the user.
+2. `PY -m src.cli discover --tiers 2`: LinkedIn, Indeed, Glassdoor and Naukri via JobSpy. This is the
+   slow part (often 5–10 minutes) because it scrapes the sites one after another.
 
-(Use plain `discover` to include Apify and Firecrawl if those keys were added.) Give the command a
-long timeout, around 10 minutes, because JobSpy (tier 2) scrapes several job sites one after another.
+(Use plain `discover` to also include Apify and Firecrawl if those keys were added.) Use background
+runs or long timeouts as described in rule 11. While a run is going, the log lines
+`[Tier 1: Direct APIs] Total fetched`, `[Tier 1: JobHive] Total fetched` and
+`[Tier 2: JobSpy] Total fetched` show progress, and the Notion sync happens at the end of each run.
 Tier 1 also scrapes Keka and SuccessFactors career sites live, and reads the free JobHive dataset
 (Workday, Oracle, SuccessFactors, iCIMS, Darwinbox, Keka jobs in India, about 50 MB once a day), so the
 first run can find hundreds or thousands of matches. On later runs, jobs that are no longer listed

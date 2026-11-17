@@ -7,7 +7,7 @@ You are working in `Automate-Applications`, an automated 4-tier job discovery an
 
 When the user wants to get started, set up, "use this repo", or find jobs, follow [`docs/ONBOARDING_PLAYBOOK.md`](docs/ONBOARDING_PLAYBOOK.md).
 
-- **Run every command yourself and show the results in chat. Ask the user's questions in chat.** Never tell the user to run commands in their terminal.
+- **Run every command yourself and show the results in chat. Ask the user's questions in chat.** Never tell the user to run commands in their terminal. Never end a reply by announcing a command ("I'm starting the search now") without running it in that same reply.
 - **Never run `python -m src.cli setup`.** It is an interactive terminal wizard and will hang. Use the non-interactive `python -m src.cli onboard ...` commands.
 - Start with `.venv/bin/python -m src.cli onboard status --json` (Windows: `.venv\Scripts\python.exe`); create `.venv` first if it is missing. Its `next_step` says what to do next.
 
