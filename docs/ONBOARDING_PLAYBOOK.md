@@ -153,6 +153,14 @@ Tier 1 also scrapes Keka and SuccessFactors career sites live, and reads the fre
 first run can find hundreds or thousands of matches. On later runs, jobs that are no longer listed
 are marked closed (in Notion: New/Reviewing → Closed; Applied/Interview are never changed).
 
+**Freshness rules (explain these to the user after the first run):**
+- Jobs posted more than `search.max_job_age_days` ago (default 30) are skipped, and stored jobs
+  are closed once they pass that age.
+- Workday and most SuccessFactors jobs have **no posting date**. The first run records what is
+  currently listed as a baseline **without adding it**, so the first run shows few or no Workday
+  jobs. From the next daily update on, only jobs that newly appear are added (at most about a day
+  old). Users who prefer the full undated backlog can set `search.undated_jobs: include`.
+
 Afterwards:
 - Summarize the results table: jobs fetched, how many matched, how many were new, and how many were
   synced to Notion.
@@ -200,6 +208,7 @@ they can simply **ask you** from now on:
 | "Find new jobs" | `PY -m src.cli discover --tiers 1,2` (or `discover` with keys), then `list` |
 | "Show my jobs" | `PY -m src.cli list` |
 | "Sync to Notion" | `PY -m src.cli sync-notion` |
+| "Remove old jobs" | `PY -m src.cli prune-old` (closes jobs past the age limit; Notion rows → Closed) |
 | "Change my roles" | `PY -m src.cli onboard set-search --roles "…"` |
 | "Start over / clear my jobs" | Confirm in chat first, then `PY -m src.cli reset-db --yes` |
 | "Is anything leaking?" | `PY -m src.cli verify-secrets` |

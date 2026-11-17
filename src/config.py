@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     locations: list[str] = Field(default_factory=lambda: ["Remote", "Bengaluru"])
     exclude_keywords: list[str] = Field(default_factory=lambda: ["intern", "unpaid", "10+ years"])
     min_match_score: int = 70
+    max_job_age_days: int = 30
+    undated_jobs: str = "first_seen"
     max_applications_per_day: int = 15
     min_delay_seconds: int = 2
     max_delay_seconds: int = 6
@@ -123,6 +125,8 @@ def load_settings(config_path: Path = CONFIG_PATH) -> Settings:
         "locations": search_cfg.get("locations", ["Remote", "Bengaluru"]),
         "exclude_keywords": search_cfg.get("exclude_keywords", ["intern", "unpaid", "10+ years"]),
         "min_match_score": search_cfg.get("min_match_score", 70),
+        "max_job_age_days": search_cfg.get("max_job_age_days", 30),
+        "undated_jobs": search_cfg.get("undated_jobs", "first_seen"),
         "max_applications_per_day": limits_cfg.get("max_applications_per_day", 15),
         "min_delay_seconds": limits_cfg.get("min_delay_seconds", 2),
         "max_delay_seconds": limits_cfg.get("max_delay_seconds", 6),

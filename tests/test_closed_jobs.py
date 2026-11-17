@@ -100,7 +100,8 @@ def test_snapshot_that_shrinks_by_more_than_half_is_not_used_for_closing(tmp_pat
 def test_engine_closes_missing_workday_jobs_but_not_ones_seen_live(tmp_path: Path):
     db = _db(tmp_path)  # u1, u2, u3 stored from an earlier Workday snapshot
     engine = JobDiscoveryEngine(settings=Settings(notion_enabled=False, jobhive_platforms=["workday"],
-                                                  search_keywords=["Sales Manager"]), db_path=db)
+                                                  search_keywords=["Sales Manager"], undated_jobs="include"),
+                                db_path=db)
 
     def fake_hive(**kw):
         kw["snapshots"]["workday"] = {"urls": {"u1"}, "closable": True}  # today's snapshot: only u1

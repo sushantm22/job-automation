@@ -3,6 +3,8 @@ search:
   locations: ["India", "Remote", "Bengaluru", "Bangalore", "Hyderabad", "Pune", "Mumbai", "Gurgaon", "Gurugram", "Noida", "Delhi", "Chennai"]
   exclude_keywords: ["intern", "unpaid"]
   min_match_score: 70
+  max_job_age_days: 30       # Drop/close jobs whose posting date is older than this (0 = no limit)
+  undated_jobs: first_seen   # Jobs without a posting date (Workday, SuccessFactors): first_seen | include
 limits:
   max_applications_per_day: 15
   min_delay_seconds: 2

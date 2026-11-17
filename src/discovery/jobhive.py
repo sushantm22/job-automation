@@ -11,8 +11,8 @@ columnar, so HTTP Range requests fetch just the columns we need (title, company,
 ~50 MB for all six platforms instead of ~850 MB, and nothing at all when a file hasn't changed
 since the last run (the dataset is regenerated about once a day).
 
-Limitations: the dataset has no posting dates, so a job's presence only means it was live in the
-latest snapshot. It is a third party's free service; any failure is logged and skipped.
+Limitations: Workday (and most SuccessFactors) rows have no posting date, so their freshness comes
+from first-seen tracking (see freshness.py). It is a third party's free service; any failure is logged and skipped.
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://storage.stapply.ai/jobhive/v1"
 DEFAULT_PLATFORMS = ["workday", "oracle", "successfactors", "icims", "darwinbox", "keka"]
-COLUMNS = ["title", "company", "location", "url"]
+COLUMNS = ["title", "company", "location", "url", "posted_at"]
 # Honest identification. The storage CDN rejects Python's default "Python-urllib" agent.
 HEADERS = {"User-Agent": "Automate-Applications/1.0 (job-discovery; JobHive dataset reader)"}
 
@@ -110,6 +110,12 @@ def _load_cache(path: Path, cache_key: str) -> tuple[dict[str, str], dict[str, i
     return (stamps if isinstance(stamps, dict) else {}), (counts if isinstance(counts, dict) else {})
 
 
+def _iso(value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
 def rows_to_jobs(rows: list[dict[str, Any]], platform: str) -> list[JobRecord]:
     """Keeps rows located in India and converts them to JobRecords."""
     jobs: list[JobRecord] = []
@@ -126,7 +132,8 @@ def rows_to_jobs(rows: list[dict[str, Any]], platform: str) -> list[JobRecord]:
                 location=location,
                 url=url,
                 description="",
-                posted_at=None,  # not available in the dataset
+                # Present for Oracle, iCIMS, Darwinbox, Keka; missing for Workday and most SuccessFactors.
+                posted_at=_iso(row.get("posted_at")),
             )
         )
     return jobs

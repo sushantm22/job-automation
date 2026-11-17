@@ -5,7 +5,17 @@ from typing import Any
 from urllib.error import HTTPError
 
 from ..config import Settings, load_settings
-from ..db import DB_PATH, close_missing_jobs, get_connection, mark_company_checked, reopen_jobs, upsert_jobs
+from ..db import (
+    DB_PATH,
+    admit_first_seen,
+    close_missing_jobs,
+    close_stale_jobs,
+    get_connection,
+    mark_company_checked,
+    reopen_jobs,
+    upsert_jobs,
+)
+from .freshness import first_seen_scope, is_too_old, uses_first_seen
 from ..utils.net import never_reached_server
 from .apify_adapter import fetch_apify_naukri_jobs
 from .ashby import fetch_ashby_jobs
@@ -192,6 +202,22 @@ class JobDiscoveryEngine:
             covered_companies=covered_companies,
         )
 
+    def _apply_freshness(self, jobs: list[JobRecord]) -> tuple[list[JobRecord], int, int]:
+        """Returns (jobs to keep, skipped as too old, skipped as first-seen baseline)."""
+        max_age = self.settings.max_job_age_days
+        fresh = [j for j in jobs if not is_too_old(j.posted_at, max_age)]
+        too_old = len(jobs) - len(fresh)
+        if self.settings.undated_jobs != "first_seen":
+            return fresh, too_old, 0
+
+        by_scope: dict[str, set[str]] = {}
+        for j in fresh:
+            if not j.posted_at and j.url and uses_first_seen(j.source):
+                by_scope.setdefault(first_seen_scope(j.source, j.company), set()).add(j.url)
+        admitted = admit_first_seen(by_scope, db_path=self.db_path) if by_scope else set()
+        kept = [j for j in fresh if j.posted_at or not uses_first_seen(j.source) or j.url in admitted]
+        return kept, too_old, len(fresh) - len(kept)
+
     def execute_all_tiers(
         self,
         selected_tiers: list[int] | None = None,
@@ -270,7 +296,10 @@ class JobDiscoveryEngine:
             if aggregator_urls:
                 harvested_count = self.registry.harvest_from_urls(aggregator_urls)
 
-        # 6. Deduplication & Persistence in SQLite
+        # 6. Freshness: drop jobs past the age limit; undated bulk listings only when newly seen.
+        fresh_jobs, too_old_skipped, baseline_skipped = self._apply_freshness(all_jobs)
+
+        # 7. Deduplication & Persistence in SQLite
         raw_dicts = [
             {
                 "source": j.source,
@@ -281,7 +310,7 @@ class JobDiscoveryEngine:
                 "description": j.description,
                 "posted_at": str(j.posted_at) if j.posted_at else None,
             }
-            for j in all_jobs
+            for j in fresh_jobs
             if j.url
         ]
 
@@ -326,6 +355,10 @@ class JobDiscoveryEngine:
                 )
         if jobs_closed or jobs_reopened:
             logger.info(f"[Closed jobs] {jobs_closed} marked closed, {jobs_reopened} reopened.")
+        stale_closed = close_stale_jobs(
+            self.settings.max_job_age_days, db_path=self.db_path,
+            first_seen=self.settings.undated_jobs == "first_seen",
+        )
 
         # 7. Optional Automatic Notion Database Sync
         notion_synced = 0
@@ -356,6 +389,9 @@ class JobDiscoveryEngine:
             "notion_synced": notion_synced,
             "notion_pending": notion_pending,
             "jobs_closed": jobs_closed,
+            "stale_closed": stale_closed,
+            "too_old_skipped": too_old_skipped,
+            "baseline_skipped": baseline_skipped,
             "jobs_reopened": jobs_reopened,
             "jobs": all_jobs,
         }

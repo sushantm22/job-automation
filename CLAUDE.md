@@ -47,6 +47,7 @@ python -m src.cli discover --company-limit 20 # Custom company limit (rotates th
 # Notion Sync & Management
 python -m src.cli init-notion-db --parent-page-id <url>  # Create Notion table; saves NOTION_DATABASE_ID to .env
 python -m src.cli sync-notion        # Push ALL pending jobs to Notion (discover pushes max 200/run)
+python -m src.cli prune-old          # Close jobs past search.max_job_age_days (+ old undated backlog)
 
 # Security & Database Maintenance
 python -m src.cli verify-secrets     # Audit tracked files for exposed API keys (MUST run before push)
@@ -64,6 +65,7 @@ PYTHONPATH=. .venv/bin/pytest -v     # Run full automated test suite
 - `src/discovery/engine.py`: Coordinates all 4 tiers, smart fallbacks, auto-harvesting, and deduplication.
 - `src/discovery/greenhouse.py`, `lever.py`, `ashby.py`, `smartrecruiters.py`: Tier 1 direct ATS API adapters (SmartRecruiters is filtered to India server-side).
 - `src/discovery/jobhive.py`: Tier 1 reader for the public JobHive dataset (no posting dates; third-party free service, failures are skipped; feeds closed-job tracking).
+- `src/discovery/freshness.py`: Age limit (`search.max_job_age_days`, default 30) and first-seen tracking for undated listings (`search.undated_jobs: first_seen|include`, table `seen_listings`).
 - `src/discovery/ats_scrapers_adapter.py`: Tier 1 live Keka/SuccessFactors via `ats-scrapers`; refuses any scraper that uses impersonation.
 - `src/discovery/jobspy_adapter.py`: Tier 2 JobSpy adapter (LinkedIn, Indeed, Glassdoor, Naukri; Google Jobs disabled: it requires JavaScript since Jan 2025).
 - `src/discovery/apify_adapter.py`: Tier 3 Apify cloud anti-bot actor for Naukri.

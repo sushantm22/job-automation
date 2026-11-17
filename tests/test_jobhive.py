@@ -111,7 +111,7 @@ def test_http_range_file_reads_only_requested_columns(monkeypatch):
 def test_engine_runs_jobhive_in_tier1_and_reset_db_clears_its_cache(tmp_path: Path):
     db_file = tmp_path / "jobs.db"
     init_db(db_file)
-    settings = Settings(jobhive_platforms=["workday"], notion_enabled=False,
+    settings = Settings(jobhive_platforms=["workday"], notion_enabled=False, undated_jobs="include",
                         search_keywords=["Sales Manager"], locations=["India", "Remote"])
     engine = JobDiscoveryEngine(settings=settings, db_path=db_file)
 

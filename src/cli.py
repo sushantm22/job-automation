@@ -119,6 +119,15 @@ def discover(
     if result.get("registry_seeded", 0) > 0:
         console.print(f"🌱 [bold green]First run:[/bold green] loaded {result['registry_seeded']} company boards from companies.yaml into your registry.")
 
+    if result.get("too_old_skipped", 0) or result.get("baseline_skipped", 0):
+        console.print(
+            f"🧹 [bold]Freshness:[/bold] skipped {result.get('too_old_skipped', 0)} jobs posted more than "
+            f"{settings.max_job_age_days} days ago and {result.get('baseline_skipped', 0)} undated older listings "
+            "(Workday/SuccessFactors: only jobs that newly appear are added)."
+        )
+    if result.get("stale_closed", 0):
+        console.print(f"🗓  [bold]{result['stale_closed']} stored jobs[/bold] passed the age limit and were marked closed.")
+
     if result.get("jobs_closed", 0) or result.get("jobs_reopened", 0):
         console.print(
             f"🔒 [bold]Closed-job tracking:[/bold] {result.get('jobs_closed', 0)} jobs no longer listed were marked "
@@ -354,6 +363,28 @@ def init_notion_db(
         if sharing_problem:
             typer.echo(NOTION_CONNECT_TIP)
         raise typer.Exit(code=1)
+
+
+@app.command("prune-old")
+def prune_old(
+    max_age_days: int = typer.Option(None, help="Override search.max_job_age_days for this run"),
+) -> None:
+    """Close stored jobs past the age limit (and old undated backlog); update their Notion rows."""
+    from . import db as db_module
+    from .integrations.notion_client import sync_closed_status
+
+    settings = load_settings()
+    days = max_age_days if max_age_days is not None else settings.max_job_age_days
+    db_path = db_module.DB_PATH
+    db_module.init_db(db_path)
+    closed = db_module.close_stale_jobs(days, db_path=db_path, first_seen=settings.undated_jobs == "first_seen")
+    typer.echo(f"Marked {closed} jobs older than {days} days (or old undated backlog) as closed.")
+    if settings.notion_enabled and settings.notion_database_id:
+        res = sync_closed_status(db_path=db_path)
+        typer.echo(
+            f"Notion: {res['closed']} rows set to Closed, {res['left_alone']} left alone "
+            f"(you had moved them past Reviewing), {res['failed']} failed."
+        )
 
 
 @app.command("sync-notion")
