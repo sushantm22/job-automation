@@ -115,6 +115,12 @@ def discover(
     if result.get("registry_seeded", 0) > 0:
         console.print(f"🌱 [bold green]First run:[/bold green] loaded {result['registry_seeded']} company boards from companies.yaml into your registry.")
 
+    if result.get("jobs_closed", 0) or result.get("jobs_reopened", 0):
+        console.print(
+            f"🔒 [bold]Closed-job tracking:[/bold] {result.get('jobs_closed', 0)} jobs no longer listed were marked "
+            f"closed, {result.get('jobs_reopened', 0)} reappeared and were reopened."
+        )
+
     if result.get("harvested_companies", 0) > 0:
         console.print(f"🌱 [bold green]Auto-Harvested:[/bold green] {result['harvested_companies']} new verified company ATS boards into registry!")
 
@@ -357,8 +363,12 @@ def sync_notion(
     typer.echo(f"Syncing jobs from SQLite to Notion...")
     try:
         res = sync_jobs_to_notion(database_id=database_id, limit=limit if limit > 0 else None)
+        from .integrations.notion_client import sync_closed_status
+        closed = sync_closed_status()
         typer.echo(f"Sync complete:")
         typer.echo(f"  • {res['synced']} jobs synced to Notion")
+        if closed["closed"] or closed["reopened"]:
+            typer.echo(f"  • {closed['closed']} rows marked Closed, {closed['reopened']} reopened")
         if res.get("failed", 0) > 0:
             typer.echo(f"  • {res['failed']} jobs failed")
     except Exception as err:

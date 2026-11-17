@@ -288,6 +288,7 @@ def test_discover_notion_sync_is_capped_per_run_and_reports_what_is_waiting(tmp_
 def test_sync_notion_command_pushes_all_pending_by_default():
     from src.cli import app
 
-    with patch("src.integrations.notion_client.sync_jobs_to_notion", return_value={"synced": 3, "failed": 0}) as sync:
+    with patch("src.integrations.notion_client.sync_jobs_to_notion", return_value={"synced": 3, "failed": 0}) as sync, \
+         patch("src.integrations.notion_client.sync_closed_status", return_value={"closed": 0, "reopened": 0}):
         result = CliRunner().invoke(app, ["sync-notion"])
     assert result.exit_code == 0 and sync.call_args.kwargs["limit"] is None

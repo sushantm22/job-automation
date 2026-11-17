@@ -145,8 +145,10 @@ Say it takes a few minutes. Then run the free sources:
 
 (Use plain `discover` to include Apify and Firecrawl if those keys were added.) Give the command a
 long timeout, around 10 minutes, because JobSpy (tier 2) scrapes several job sites one after another.
-Tier 1 also reads the free JobHive dataset (Workday, Oracle, SuccessFactors, iCIMS, Darwinbox, Keka
-jobs in India, about 50 MB once a day), so the first run can find hundreds or thousands of matches.
+Tier 1 also scrapes Keka and SuccessFactors career sites live, and reads the free JobHive dataset
+(Workday, Oracle, SuccessFactors, iCIMS, Darwinbox, Keka jobs in India, about 50 MB once a day), so the
+first run can find hundreds or thousands of matches. On later runs, jobs that are no longer listed
+are marked closed (in Notion: New/Reviewing → Closed; Applied/Interview are never changed).
 
 Afterwards:
 - Summarize the results table: jobs fetched, how many matched, how many were new, and how many were

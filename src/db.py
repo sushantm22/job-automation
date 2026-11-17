@@ -88,10 +88,12 @@ def init_db(db_path: Path = DB_PATH) -> Path:
     connection = get_connection(db_path)
     try:
         connection.executescript(SCHEMA)
-        try:
-            connection.execute("ALTER TABLE jobs ADD COLUMN notion_page_id TEXT")
-        except sqlite3.OperationalError:
-            pass  # Already exists
+        # Columns added after the first release; ALTER fails harmlessly if they already exist.
+        for column in ("notion_page_id TEXT", "closed_at TEXT", "notion_closed INTEGER DEFAULT 0"):
+            try:
+                connection.execute(f"ALTER TABLE jobs ADD COLUMN {column}")
+            except sqlite3.OperationalError:
+                pass
         connection.commit()
     finally:
         connection.close()
@@ -143,6 +145,49 @@ def list_jobs(status: str | None = None, db_path: Path = DB_PATH) -> list[sqlite
         else:
             rows = connection.execute("SELECT * FROM jobs ORDER BY discovered_at DESC").fetchall()
         return rows
+    finally:
+        connection.close()
+
+
+def close_missing_jobs(source: str, open_urls: set[str], db_path: Path = DB_PATH) -> int:
+    """
+    Closed-job tracking: marks jobs from `source` that are no longer in its latest complete
+    snapshot. Sets closed_at; the status changes to 'closed' only while it is still 'new', so a
+    job the user has moved on (reviewing/applied) keeps their status. Returns the number closed.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    connection = get_connection(db_path)
+    try:
+        rows = connection.execute(
+            "SELECT id, url FROM jobs WHERE source = ? AND closed_at IS NULL", (source,)
+        ).fetchall()
+        gone = [(now, r["id"]) for r in rows if r["url"] not in open_urls]
+        connection.executemany(
+            "UPDATE jobs SET closed_at = ?, status = CASE WHEN status = 'new' THEN 'closed' ELSE status END "
+            "WHERE id = ?",
+            gone,
+        )
+        connection.commit()
+        return len(gone)
+    finally:
+        connection.close()
+
+
+def reopen_jobs(urls: set[str], db_path: Path = DB_PATH) -> int:
+    """Clears closed_at for closed jobs seen again (any source). Returns the number reopened."""
+    if not urls:
+        return 0
+    connection = get_connection(db_path)
+    try:
+        rows = connection.execute("SELECT id, url FROM jobs WHERE closed_at IS NOT NULL").fetchall()
+        back = [(r["id"],) for r in rows if r["url"] in urls]
+        connection.executemany(
+            "UPDATE jobs SET closed_at = NULL, status = CASE WHEN status = 'closed' THEN 'new' ELSE status END "
+            "WHERE id = ?",
+            back,
+        )
+        connection.commit()
+        return len(back)
     finally:
         connection.close()
 

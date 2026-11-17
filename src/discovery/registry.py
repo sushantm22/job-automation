@@ -16,7 +16,7 @@ DEFAULT_YAML_PATH = Path(__file__).resolve().parent / "companies.yaml"
 
 # Top-level keys in companies.yaml that hold ATS slug lists owned by the SQLite registry.
 # Every other key (e.g. `enterprise_portals` for Tier 4) is hand-maintained and must be preserved.
-ATS_PLATFORM_KEYS = {"greenhouse", "lever", "ashby", "smartrecruiters"}
+ATS_PLATFORM_KEYS = {"greenhouse", "lever", "ashby", "smartrecruiters", "keka", "successfactors"}
 
 
 def _load_yaml_dict(path: Path) -> dict[str, Any]:

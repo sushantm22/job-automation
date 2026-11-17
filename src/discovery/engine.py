@@ -5,7 +5,7 @@ from typing import Any
 from urllib.error import HTTPError
 
 from ..config import Settings, load_settings
-from ..db import DB_PATH, get_connection, mark_company_checked, upsert_jobs
+from ..db import DB_PATH, close_missing_jobs, get_connection, mark_company_checked, reopen_jobs, upsert_jobs
 from ..utils.net import never_reached_server
 from .apify_adapter import fetch_apify_naukri_jobs
 from .ashby import fetch_ashby_jobs
@@ -17,6 +17,7 @@ from .jobspy_adapter import fetch_jobspy_jobs
 from .lever import fetch_lever_jobs
 from .registry import CompanyRegistry
 from .smartrecruiters import fetch_smartrecruiters_jobs
+from .ats_scrapers_adapter import LIVE_PLATFORMS, fetch_live_ats_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,9 @@ logger = logging.getLogger(__name__)
 def _count_unsynced(db_path) -> int:
     conn = get_connection(db_path)
     try:
-        return conn.execute("SELECT count(*) FROM jobs WHERE notion_page_id IS NULL").fetchone()[0]
+        return conn.execute(
+            "SELECT count(*) FROM jobs WHERE notion_page_id IS NULL AND closed_at IS NULL"
+        ).fetchone()[0]
     finally:
         conn.close()
 
@@ -45,11 +48,12 @@ class JobDiscoveryEngine:
         self.registry = CompanyRegistry(db_path=self.db_path)
         self.registry_seeded = 0
         self.network_unavailable = False
+        self.jobhive_snapshots: dict[str, dict[str, Any]] = {}
 
     def run_tier1_direct_apis(self, company_limit: int | None = 50) -> list[JobRecord]:
         """
         Tier 1: High-speed, 100% free direct API polling for tracked ATS boards
-        (Greenhouse, Lever, Ashby, SmartRecruiters).
+        (Greenhouse, Lever, Ashby, SmartRecruiters, and live Keka/SuccessFactors via ats-scrapers).
         Polls the least-recently-checked boards first so `company_limit` rotates through the registry.
         """
         self.registry_seeded = self.registry.ensure_seeded()
@@ -68,6 +72,8 @@ class JobDiscoveryEngine:
                         jobs = fetch_ashby_jobs(slug)
                     elif platform == "smartrecruiters":
                         jobs = fetch_smartrecruiters_jobs(slug)
+                    elif platform in LIVE_PLATFORMS:
+                        jobs = fetch_live_ats_jobs(platform, slug)
                     else:
                         continue
 
@@ -119,6 +125,7 @@ class JobDiscoveryEngine:
                 platforms=s.jobhive_platforms,
                 cache_path=Path(f"{self.db_path}.jobhive-cache.json"),
                 cache_key=cache_key,
+                snapshots=self.jobhive_snapshots,
             )
         except Exception as err:  # e.g. pyarrow missing: never break discovery
             logger.warning(f"[Tier 1: JobHive] Skipped: {err}")
@@ -198,6 +205,7 @@ class JobDiscoveryEngine:
         and saves deduplicated postings to the SQLite ledger.
         """
         active_tiers = set(selected_tiers or [1, 2, 3, 4])
+        self.jobhive_snapshots = {}
         all_jobs: list[JobRecord] = []
         tier_counts: dict[str, int] = {
             "tier1_direct_apis": 0,
@@ -306,6 +314,19 @@ class JobDiscoveryEngine:
         net_new = max(0, count_after - count_before)
         duplicates_prevented = len(target_dicts) - net_new
 
+        # Closed-job tracking (JobHive platforms, e.g. Workday). Anything seen this run, by any
+        # source, is open; jobs missing from a complete daily snapshot are marked closed.
+        seen_urls = {j.url for j in all_jobs if j.url}
+        jobs_reopened = reopen_jobs(seen_urls, db_path=self.db_path)
+        jobs_closed = 0
+        for platform, snap in self.jobhive_snapshots.items():
+            if snap.get("closable"):
+                jobs_closed += close_missing_jobs(
+                    f"jobhive:{platform}", snap["urls"] | seen_urls, db_path=self.db_path
+                )
+        if jobs_closed or jobs_reopened:
+            logger.info(f"[Closed jobs] {jobs_closed} marked closed, {jobs_reopened} reopened.")
+
         # 7. Optional Automatic Notion Database Sync
         notion_synced = 0
         notion_pending = 0
@@ -316,6 +337,8 @@ class JobDiscoveryEngine:
                 sync_res = sync_jobs_to_notion(db_path=self.db_path, limit=cap if cap and cap > 0 else None)
                 notion_synced = sync_res.get("synced", 0)
                 notion_pending = _count_unsynced(self.db_path)
+                from ..integrations.notion_client import sync_closed_status
+                sync_closed_status(api_token=self.settings.notion_api_token, db_path=self.db_path)
                 if notion_synced > 0:
                     logger.info(f"[Notion Sync] Automatically synced {notion_synced} new jobs to Notion table.")
             except Exception as err:
@@ -332,5 +355,7 @@ class JobDiscoveryEngine:
             "network_unavailable": self.network_unavailable,
             "notion_synced": notion_synced,
             "notion_pending": notion_pending,
+            "jobs_closed": jobs_closed,
+            "jobs_reopened": jobs_reopened,
             "jobs": all_jobs,
         }

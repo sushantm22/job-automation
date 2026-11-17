@@ -48,7 +48,7 @@ nothing personal ever gets committed.
 
 | Service / Tier | Required? | Cost | Description |
 | :--- | :---: | :---: | :--- |
-| **Tier 1 (Direct ATS APIs)** | **No** | **100% Free** | Direct JSON endpoints for Greenhouse, Lever, Ashby and SmartRecruiters across 150+ companies, plus the free JobHive dataset (Workday, Oracle, SuccessFactors, Darwinbox, Keka, iCIMS). **Zero API keys needed!** |
+| **Tier 1 (Direct ATS APIs)** | **No** | **100% Free** | Direct JSON endpoints for Greenhouse, Lever, Ashby and SmartRecruiters across 150+ companies, plus live Keka/SuccessFactors career sites and the free JobHive dataset (Workday, Oracle, SuccessFactors, Darwinbox, Keka, iCIMS); jobs that close are marked Closed. **Zero API keys needed!** |
 | **Tier 2 (JobSpy Aggregators)** | **No** | **100% Free** | Scrapes LinkedIn, Indeed, and Glassdoor without browser overhead. **Zero API keys needed!** |
 | **Google Gemini API** | Not used yet | Free Tier | Planned for job-match scoring and resume tailoring. Not needed today. |
 | **Tier 3 (Apify Naukri)** | Optional | Free (\$5/mo) | Solves Cloudflare & residential proxies for Naukri. [Get free token here](https://console.apify.com/account/integrations). |

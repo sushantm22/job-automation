@@ -30,7 +30,7 @@ python -m src.cli verify-secrets     # Audit repository for exposed secrets
 ```
 
 ### Architecture Breakdown
-1. **Tier 1 (Direct ATS APIs):** Greenhouse, Lever, Ashby, SmartRecruiters direct JSON polling, plus the free JobHive dataset (Workday, Oracle, SuccessFactors, iCIMS, Darwinbox, Keka). Free, no API keys.
+1. **Tier 1 (Direct ATS APIs):** Greenhouse, Lever, Ashby, SmartRecruiters direct JSON polling, plus the free JobHive dataset (Workday, Oracle, SuccessFactors, iCIMS, Darwinbox, Keka) with closed-job tracking, and live Keka/SuccessFactors scraping via `ats-scrapers` (core install only). Free, no API keys.
 2. **Tier 2 (JobSpy Aggregators):** LinkedIn, Indeed, Glassdoor, Naukri without browser overhead. Free, no API keys.
 3. **Tier 3 (Apify Naukri):** Cloud actor for anti-bot & residential proxy bypass. Fallback only when JobSpy returns 0 Naukri jobs. Optional `APIFY_API_TOKEN`.
 4. **Tier 4 (Firecrawl Enterprise):** Client-side SPA extraction for ~20 enterprise career portals (budget-capped). Optional `FIRECRAWL_API_KEY`.

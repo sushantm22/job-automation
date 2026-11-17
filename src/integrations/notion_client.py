@@ -8,7 +8,7 @@ from typing import Any
 from urllib import request, error
 
 from ..config import Settings, load_settings
-from ..db import DB_PATH, get_connection
+from ..db import DB_PATH, get_connection, init_db
 from ..utils.net import never_reached_server
 
 logger = logging.getLogger(__name__)
@@ -142,6 +142,7 @@ def create_notion_job_database(
                         {"name": "Applied", "color": "green"},
                         {"name": "Interview", "color": "purple"},
                         {"name": "Archived", "color": "gray"},
+                        {"name": "Closed", "color": "brown"},
                     ]
                 }
             },
@@ -289,10 +290,12 @@ def sync_jobs_to_notion(
     if not token or not target_db_id:
         logger.info("[Notion Sync] NOTION_API_KEY or NOTION_DATABASE_ID missing. Skipping Notion sync.")
         return {"synced": 0, "failed": 0, "skipped": 0}
+    init_db(db_path)  # adds columns introduced after this database was created (e.g. closed_at)
 
     conn = get_connection(db_path)
     try:
-        query = "SELECT * FROM jobs WHERE notion_page_id IS NULL ORDER BY id DESC"
+        # Closed jobs (gone from their source) are never pushed as new rows.
+        query = "SELECT * FROM jobs WHERE notion_page_id IS NULL AND closed_at IS NULL ORDER BY id DESC"
         if limit:
             query += f" LIMIT {int(limit)}"
         rows = conn.execute(query).fetchall()
@@ -344,3 +347,76 @@ def sync_jobs_to_notion(
             failed += 1
 
     return {"synced": synced, "failed": failed, "skipped": skipped}
+
+
+# Notion statuses closed-job tracking may change. Anything else (Applied, Interview, ...) is the
+# user's own progress and is never overwritten.
+CLOSABLE_NOTION_STATUSES = {None, "New", "Reviewing"}
+
+
+def _page_status(page_id: str, token: str, timeout: float) -> str | None:
+    req = request.Request(f"{NOTION_BASE_URL}/pages/{page_id}", headers=get_notion_headers(token), method="GET")
+    props = _send_json(req, timeout).get("properties") or {}
+    return ((props.get("Status") or {}).get("select") or {}).get("name")
+
+
+def _set_page_status(page_id: str, status: str, token: str, timeout: float) -> None:
+    body = {"properties": {"Status": {"select": {"name": status}}}}
+    req = request.Request(
+        f"{NOTION_BASE_URL}/pages/{page_id}",
+        data=json.dumps(body).encode("utf-8"),
+        headers=get_notion_headers(token),
+        method="PATCH",
+    )
+    _send_json(req, timeout)
+
+
+def sync_closed_status(
+    api_token: str | None = None,
+    db_path=DB_PATH,
+    timeout: float = 15.0,
+) -> dict[str, int]:
+    """
+    Mirrors closed-job tracking into Notion: rows for closed jobs go New/Reviewing -> Closed, and
+    reopened jobs go Closed -> New. Rows the user moved to another status are left alone.
+    """
+    settings = load_settings()
+    token = (api_token or settings.notion_api_token).strip()
+    result = {"closed": 0, "reopened": 0, "left_alone": 0, "failed": 0}
+    if not token:
+        return result
+    init_db(db_path)
+
+    real_page = "notion_page_id IS NOT NULL AND notion_page_id NOT LIKE 'skipped%'"
+    conn = get_connection(db_path)
+    try:
+        to_close = conn.execute(
+            f"SELECT id, notion_page_id FROM jobs WHERE closed_at IS NOT NULL AND notion_closed = 0 AND {real_page}"
+        ).fetchall()
+        to_reopen = conn.execute(
+            f"SELECT id, notion_page_id FROM jobs WHERE closed_at IS NULL AND notion_closed = 1 AND {real_page}"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    for rows, wanted_from, new_status, flag, key in (
+        (to_close, CLOSABLE_NOTION_STATUSES, "Closed", 1, "closed"),
+        (to_reopen, {"Closed"}, "New", 0, "reopened"),
+    ):
+        for row in rows:
+            try:
+                if _page_status(row["notion_page_id"], token, timeout) in wanted_from:
+                    _set_page_status(row["notion_page_id"], new_status, token, timeout)
+                    result[key] += 1
+                else:
+                    result["left_alone"] += 1
+                conn = get_connection(db_path)
+                try:
+                    conn.execute("UPDATE jobs SET notion_closed = ? WHERE id = ?", (flag, row["id"]))
+                    conn.commit()
+                finally:
+                    conn.close()
+            except Exception as err:
+                logger.warning(f"[Notion] Could not update status for job {row['id']}: {err}")
+                result["failed"] += 1
+    return result

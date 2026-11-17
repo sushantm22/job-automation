@@ -89,16 +89,25 @@ class HTTPRangeFile(io.RawIOBase):
         return len(data)
 
 
-def _load_stamps(path: Path, cache_key: str) -> dict[str, str]:
-    """Last-Modified stamps from the previous run, or {} if the search settings/database changed."""
+# Closed-job tracking safety: if a platform's India row count drops below this fraction of the
+# previous snapshot, the snapshot is treated as broken and nothing is closed from it.
+MIN_SNAPSHOT_RATIO = 0.5
+
+
+def _load_cache(path: Path, cache_key: str) -> tuple[dict[str, str], dict[str, int]]:
+    """
+    Returns (Last-Modified stamps, India row counts) from the previous run. Stamps are only valid
+    for the same search settings/database (`cache_key`); counts describe the dataset itself.
+    """
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {}
-    if not isinstance(data, dict) or data.get("key") != cache_key:
-        return {}
-    stamps = data.get("stamps")
-    return stamps if isinstance(stamps, dict) else {}
+        return {}, {}
+    if not isinstance(data, dict):
+        return {}, {}
+    stamps = data.get("stamps") if data.get("key") == cache_key else None
+    counts = data.get("counts")
+    return (stamps if isinstance(stamps, dict) else {}), (counts if isinstance(counts, dict) else {})
 
 
 def rows_to_jobs(rows: list[dict[str, Any]], platform: str) -> list[JobRecord]:
@@ -128,16 +137,22 @@ def fetch_jobhive_jobs(
     cache_path: Path | None = None,
     opener: Callable[[str], Any] | None = None,
     cache_key: str = "",
+    snapshots: dict[str, dict[str, Any]] | None = None,
 ) -> list[JobRecord]:
     """
     India jobs from the JobHive platform slices. A slice whose Last-Modified matches the cache
     was already processed in an earlier run with the same `cache_key` (search settings), so its
     matches are already in the database and it is skipped.
+
+    If `snapshots` is given, it is filled for every platform read in full this run:
+    {platform: {"urls": all India job URLs in the snapshot, "closable": bool}}. "closable" is False
+    when the India row count fell below MIN_SNAPSHOT_RATIO of the previous snapshot (likely a broken
+    or partial dataset), so closed-job tracking must not use it.
     """
     import pyarrow.parquet as pq
 
     opener = opener or HTTPRangeFile
-    cache = _load_stamps(cache_path, cache_key) if cache_path else {}
+    cache, counts = _load_cache(cache_path, cache_key) if cache_path else ({}, {})
     all_jobs: list[JobRecord] = []
 
     for platform in platforms or DEFAULT_PLATFORMS:
@@ -153,6 +168,17 @@ def fetch_jobhive_jobs(
             all_jobs.extend(jobs)
             if stamp:
                 cache[platform] = stamp
+            previous = counts.get(platform)
+            closable = bool(jobs) and (not previous or len(jobs) >= previous * MIN_SNAPSHOT_RATIO)
+            if closable:
+                counts[platform] = len(jobs)
+            else:
+                logger.warning(
+                    f"[JobHive] {platform}: snapshot has {len(jobs)} India jobs vs {previous} last time; "
+                    "looks incomplete, so no jobs are marked closed from it."
+                )
+            if snapshots is not None:
+                snapshots[platform] = {"urls": {j.url for j in jobs}, "closable": closable}
             mb = getattr(remote, "bytes_read", 0) / 1e6
             logger.info(f"[JobHive] {platform}: {len(jobs)} India jobs of {table.num_rows} ({mb:.1f} MB).")
         except Exception as err:
@@ -160,5 +186,7 @@ def fetch_jobhive_jobs(
 
     if cache_path:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(json.dumps({"key": cache_key, "stamps": cache}, indent=2) + "\n", encoding="utf-8")
+        cache_path.write_text(
+            json.dumps({"key": cache_key, "stamps": cache, "counts": counts}, indent=2) + "\n", encoding="utf-8"
+        )
     return all_jobs
