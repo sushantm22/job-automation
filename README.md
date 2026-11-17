@@ -46,6 +46,10 @@ The project is organized into a few main areas:
 ## Quick start from scratch
 
 1. Open a terminal in the project root.
+
+   Shortcut: `python3 bootstrap.py` (Windows: `py -3 bootstrap.py`) does steps 2–4 in one go
+   (virtual environment, requirements, `.env`). Then activate the environment as in step 3.
+
 2. Create a virtual environment:
 
    ```bash

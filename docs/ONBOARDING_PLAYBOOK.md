@@ -37,7 +37,7 @@ Use it whenever the user says anything like "set me up", "start using this repo"
    Never write keys or personal details into tracked files such as `config.yaml` or docs.
 8. **Be honest about failures.** If a command fails, show the important part of the error, explain it
    in plain words, and fix it or offer the next option.
-9. **These commands need internet access:** `pip install`, `onboard check-keys`, `onboard set-key`,
+9. **These commands need internet access:** `bootstrap.py` (it runs `pip install`), `onboard check-keys`, `onboard set-key`,
    `init-notion-db`, `discover` and `sync-notion`. If your tool runs commands in a sandbox without
    network access (Antigravity, Codex and others), run these with network access enabled **from the
    first attempt** (for example Antigravity's `BypassSandbox`) instead of waiting for them to fail.
@@ -52,27 +52,35 @@ Use it whenever the user says anything like "set me up", "start using this repo"
    the background if your tool allows it (Copilot: run in terminal as a background command; Claude
    Code: `run_in_background`), then check the output about once a minute and tell the user how far
    it has got. Otherwise run them in the foreground with a timeout of about 15 minutes.
+12. **Use as few tool calls as possible.** Many tools ask the user to approve every command, so
+   combine consecutive commands into one call with `&&` (for example a step's command followed by
+   `onboard status --json`), and don't run exploratory commands (`ls`, `which`, guessing paths).
+13. **Never write `.env`, `config.local.yaml` or `data/profile.json` by hand, and never fill in
+   placeholder values** ("Your Name", example emails). Only the `onboard` commands write these files,
+   and only with values the user gave you.
 
 ---
 
 ## Step 0: Prepare the environment (no questions needed)
 
-Tell the user you are installing things, which takes 1–3 minutes. Then:
+Tell the user you are installing things, which takes 1–3 minutes. Then run **one** command from the
+project folder (it needs internet access, see rule 9):
 
-1. Check Python is 3.10 or newer: `python3 --version` (Windows: `py -3 --version`).
-   - If it is missing or older, this is the one thing the user must install. Point them to
-     https://www.python.org/downloads/ (macOS alternative: `brew install python`), wait for them to
-     confirm, then continue.
-2. If `.venv` does not exist: `python3 -m venv .venv` (Windows: `py -3 -m venv .venv`).
-3. Install dependencies: `PY -m pip install -r requirements.txt`. **This downloads packages, so it
-   needs internet access:** if your tool sandboxes commands, run it with network access enabled on
-   the first attempt (rule 9). Pip cache warnings are harmless.
-4. Run `PY -m src.cli onboard prepare`. It creates `.env` from `.env.example`, so the file exists
-   before you ever ask for a key, and also creates the database and loads the company list. It's safe
-   to re-run.
-5. Run `PY -m src.cli onboard status --json` and greet the user with a short plan, for example:
-   > "You're set up to search for jobs. I'll ask about the roles you want, optional extras like Notion
-   > tracking, then run your first search. Takes about 5 minutes."
+`cd "<project folder>" && python3 bootstrap.py` (Windows: `py -3 bootstrap.py`)
+
+It checks Python, creates `.venv`, installs the requirements (skipped when they are unchanged), runs
+`onboard prepare` (creates `.env` from `.env.example` so it exists before you ask for any key, the
+database and the company list) and prints `onboard status --json`. It's safe to re-run. Don't split it
+into separate venv/pip/prepare commands: that only adds approvals for the user.
+
+- If it says Python is missing or too old, this is the one thing the user must install. Point them to
+  https://www.python.org/downloads/ (macOS alternative: `brew install python`), wait for them to
+  confirm, then run it again.
+- Pip cache warnings are harmless. A network/DNS error means rerun with internet access.
+
+Then greet the user with a short plan, for example:
+> "You're set up to search for jobs. I'll ask about the roles you want, optional extras like Notion
+> tracking, then run your first search. Takes about 5 minutes."
 
 ---
 
@@ -148,16 +156,18 @@ If the user wants no extras: `PY -m src.cli onboard skip api_keys`
 
 ## Step `first_discovery`: First job search
 
-Run the free sources **in this same reply** (rule 11), in two parts so results reach the user
-(and Notion) sooner and each command stays short:
+Run the free sources **in this same reply** (rule 11), as one background command in two parts, so
+the user approves once and the first results reach Notion before the slow part starts:
 
-1. `PY -m src.cli discover --tiers 1`: company job boards and the JobHive dataset (a few minutes).
-   Summarize the results, then go straight on to part 2 in the same reply without waiting for the user.
-2. `PY -m src.cli discover --tiers 2`: LinkedIn, Indeed, Glassdoor and Naukri via JobSpy. This is the
-   slow part (often 5–10 minutes) because it scrapes the sites one after another.
+`PY -m src.cli discover --tiers 1 && PY -m src.cli discover --tiers 2`
+
+- Part 1 (tier 1): company job boards and the JobHive dataset, a few minutes.
+- Part 2 (tier 2): LinkedIn, Indeed, Glassdoor and Naukri via JobSpy, the slow part (often 5–10
+  minutes) because it scrapes the sites one after another.
 
 (Use plain `discover` to also include Apify and Firecrawl if those keys were added.) Use background
-runs or long timeouts as described in rule 11. While a run is going, the log lines
+runs or long timeouts as described in rule 11, and report part 1's results as soon as its table
+appears in the output. While a run is going, the log lines
 `[Tier 1: Direct APIs] Total fetched`, `[Tier 1: JobHive] Total fetched` and
 `[Tier 2: JobSpy] Total fetched` show progress, and the Notion sync happens at the end of each run.
 Tier 1 also scrapes Keka and SuccessFactors career sites live, and reads the free JobHive dataset

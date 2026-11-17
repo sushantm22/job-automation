@@ -13,7 +13,11 @@ When the user wants to get started, set up, "use this repo", or find jobs, follo
 
 - **Run every command yourself and show the results in chat. Ask the user's questions in chat.** Never tell the user to run commands in their terminal.
 - **Never run `python -m src.cli setup`.** It is an interactive terminal wizard and will hang. Use the non-interactive `python -m src.cli onboard ...` commands.
-- Start with `.venv/bin/python -m src.cli onboard status --json` (create `.venv` first if it is missing; see the playbook). Its `next_step` says what to do next.
+- **Read the whole playbook before running anything**, then follow it step by step. Don't improvise the setup.
+- **First command, in one call:** `cd "<project folder>" && python3 bootstrap.py` (Windows: `py -3 bootstrap.py`). It creates `.venv`, installs requirements, creates `.env` and prints `onboard status --json`; its `next_step` says what to do next. Afterwards always use `.venv/bin/python` (Windows: `.venv\Scripts\python.exe`), never `source .venv/bin/activate`.
+- **Combine commands with `&&` and skip exploratory commands**: the user may have to approve every call.
+- **Secrets are piped, never typed:** `printf '%s' "$KEY" | .venv/bin/python -m src.cli onboard set-key NAME`, or the user edits `.env` and you run `onboard check-keys`.
+- **Never write `.env`, `config.local.yaml` or `data/profile.json` by hand or with placeholder values.** Only the `onboard` commands write them, with values the user gave you.
 
 ---
 
@@ -30,6 +34,7 @@ When the user wants to get started, set up, "use this repo", or find jobs, follo
 
 ```bash
 # Onboarding (non-interactive; for assistants and scripts)
+python3 bootstrap.py                             # Step 0 in one command: venv, requirements, onboard prepare, status
 python -m src.cli onboard prepare                # Step 0: create .env (from .env.example), database, company list
 python -m src.cli onboard status --json          # What's done/missing + next_step
 python -m src.cli onboard check-keys             # Verify keys the user added to .env (never prints values)

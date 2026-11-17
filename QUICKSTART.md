@@ -30,10 +30,9 @@ jobs"*.
 git clone https://github.com/sushantm22/job-automation.git
 cd job-automation
 
-# Python 3.10+ virtual environment
-python3 -m venv .venv
+# Python 3.10+: creates .venv, installs requirements, creates .env (Windows: py -3 bootstrap.py)
+python3 bootstrap.py
 source .venv/bin/activate    # On Windows: .venv\Scripts\activate
-pip install -r requirements.txt
 
 # Interactive wizard: roles, profile, optional keys, Notion table
 python -m src.cli setup

@@ -16,12 +16,15 @@ contains the exact commands, what to ask, and how to handle errors.
 2. **Ask questions in chat**, one topic at a time, offering the current or default value.
 3. **Never run `python -m src.cli setup`.** It is an interactive wizard and will hang. Use
    `python -m src.cli onboard ...`.
-4. **Let `.venv/bin/python -m src.cli onboard status --json` decide the next step.** Run it after each step.
+4. **First command, in one call:** `cd "<project folder>" && python3 bootstrap.py` (Windows: `py -3 bootstrap.py`).
+   Then let `.venv/bin/python -m src.cli onboard status --json` decide each next step; chain it after
+   the step's command with `&&` so the user approves one call, not two.
 5. **Secrets:** when a key is needed, offer two options. The user pastes it in chat (mention that chat
    content goes to the AI provider) and you save it via stdin with `onboard set-key`, or they add it to
    `.env` themselves. Never echo a key back or print `.env`.
 6. **Personal data stays out of git:** `.env`, `config.local.yaml`, `data/profile.json` and resumes
-   are gitignored. Never write them into tracked files.
+   are gitignored. Never write them into tracked files, never write them by hand, and never fill in
+   placeholder values; only the `onboard` commands write them.
 7. **Never end a reply by announcing a command.** If you say "I'm running the job search now", the
    same reply must run it. Start `discover` and `sync-notion` (several minutes each) as background
    terminal commands, then check their output about once a minute and report progress in chat.

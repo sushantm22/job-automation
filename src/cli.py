@@ -568,6 +568,13 @@ def onboard_set_key(
     import sys
     from .onboard_steps import set_key
 
+    if sys.stdin.isatty():  # nothing piped in: reading would wait for keyboard input forever
+        typer.echo(
+            f"Error: no value piped in. Pipe the key, e.g. printf '%s' \"$KEY\" | ... onboard set-key {name}, "
+            "or let the user add it to .env themselves and run 'onboard check-keys'.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
     try:
         res = set_key(name.strip().upper(), sys.stdin.read(), verify=verify)
     except ValueError as err:
