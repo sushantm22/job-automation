@@ -264,7 +264,10 @@ def prepare() -> dict[str, Any]:
     }
 
 
-UNREACHABLE = "couldn't check: no internet access (allow network access and run check-keys again)"
+UNREACHABLE = (
+    "couldn't check: couldn't connect (no internet access, or an SSL certificate/proxy problem on this "
+    "computer); the key itself may be fine. Allow network access and run check-keys again"
+)
 
 
 def _check_value(name: str, value: str) -> str:

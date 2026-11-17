@@ -15,7 +15,7 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
-from .utils.net import never_reached_server
+from .utils.net import could_not_connect
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config.yaml"
@@ -226,7 +226,7 @@ def test_gemini_key(api_key: str) -> bool | None:
             return resp.status == 200
     except Exception as err:
         # None = couldn't check (offline / sandboxed), which says nothing about the key itself.
-        return None if never_reached_server(err) else False
+        return None if could_not_connect(err) else False
 
 
 def test_apify_token(token: str) -> bool | None:
@@ -240,7 +240,7 @@ def test_apify_token(token: str) -> bool | None:
             return resp.status == 200
     except Exception as err:
         # None = couldn't check (offline / sandboxed), which says nothing about the key itself.
-        return None if never_reached_server(err) else False
+        return None if could_not_connect(err) else False
 
 
 def test_notion_key(token: str) -> bool | None:
@@ -258,7 +258,7 @@ def test_notion_key(token: str) -> bool | None:
             return resp.status == 200
     except Exception as err:
         # None = couldn't check (offline / sandboxed), which says nothing about the key itself.
-        return None if never_reached_server(err) else False
+        return None if could_not_connect(err) else False
 
 
 def run_interactive_onboarding() -> None:

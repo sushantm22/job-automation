@@ -26,6 +26,9 @@ Use it whenever the user says anything like "set me up", "start using this repo"
    - Windows: `.venv\Scripts\python.exe`
 
    Below, `PY` means whichever applies.
+
+   **Always quote the project path.** Folder names often contain spaces, and an unquoted path fails
+   with errors like `cd: too many arguments`. Write `cd "/Users/me/my projects/Automate-Applications"`.
 6. **Let `onboard status` decide what's next.** After every step run
    `PY -m src.cli onboard status --json` and continue with `next_step`. If the user comes back later,
    it tells you where they left off.
@@ -211,6 +214,7 @@ they can simply **ask you** from now on:
 | Tier 2 returns 0 or errors | Job sites rate-limit scrapers. Try again later; tier 1 still works. |
 | Notion `object_not_found` / 404 | The parent page isn't shared with the integration (Notion step 2). |
 | "Couldn't reach Notion", `nodename nor servname provided`, `Name or service not known` | A network/DNS problem; the request never reached Notion, so the user's setup is fine. The command already retries briefly. Run it again. If your tool sandboxes commands, run it with network access allowed (or ask the user to approve that). Never send the user back to Notion's settings for this. |
+| `CERTIFICATE_VERIFY_FAILED` / "Couldn't verify ... security certificate" | A certificate setup problem on this computer, not the user's keys. The CLI already uses the operating system's certificate store; if it still happens with python.org's Python on macOS, run `/Applications/Python 3.x/Install Certificates.command` once. Don't ask the user for a new key. |
 | Firecrawl "read operation timed out" | That career site was slow; it's skipped this run and retried next time. |
 
 ## Chat tools that can't run commands (ChatGPT/Claude/Gemini on the web)

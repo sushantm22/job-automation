@@ -19,6 +19,10 @@ from .discovery import (
 )
 from .llm.base import MockLLMClient
 from .scoring import hard_filter_jobs, score_job
+from .utils.net import use_system_trust_store
+
+# Verify HTTPS with the OS trust store so certificate checks work in any terminal (e.g. VS Code/Copilot).
+use_system_trust_store()
 
 app = typer.Typer(add_completion=False, help="Job application automation assistant")
 

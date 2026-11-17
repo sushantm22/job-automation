@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import ssl
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -54,6 +55,12 @@ def explain_notion_error(err: Exception) -> tuple[str, bool]:
         return message or str(err), err.code in (401, 403, 404)
     if isinstance(err, (error.URLError, OSError)):
         reason = getattr(err, "reason", err)
+        if isinstance(reason, ssl.SSLError) or isinstance(err, ssl.SSLError):
+            return (
+                f"Couldn't verify Notion's security certificate: {reason}. This is a certificate setup "
+                "problem on this computer, not your Notion setup or key.",
+                False,
+            )
         return (
             f"Couldn't reach Notion (api.notion.com): {reason}. This is a network problem, not your Notion "
             "setup. Check the internet connection (or allow network access for this tool) and try again.",

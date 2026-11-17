@@ -12,3 +12,4 @@ pyarrow>=15.0.0
 # which pull in browser-impersonation tooling (httpcloak, cloakbrowser).
 ats-scrapers==0.3.0
 beautifulsoup4>=4.12
+truststore>=0.9
