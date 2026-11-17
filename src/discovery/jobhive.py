@@ -162,8 +162,10 @@ def fetch_jobhive_jobs(
     cache, counts = _load_cache(cache_path, cache_key) if cache_path else ({}, {})
     all_jobs: list[JobRecord] = []
 
-    for platform in platforms or DEFAULT_PLATFORMS:
+    selected = platforms or DEFAULT_PLATFORMS
+    for number, platform in enumerate(selected, 1):
         url = f"{BASE_URL}/{platform}/jobs.parquet"
+        logger.info(f"[JobHive] {platform} ({number}/{len(selected)})...")
         try:
             remote = opener(url)
             stamp = getattr(remote, "last_modified", "")

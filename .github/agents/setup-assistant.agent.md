@@ -27,7 +27,7 @@ contains the exact commands, what to ask, and how to handle errors.
    placeholder values; only the `onboard` commands write them.
 7. **Never end a reply by announcing a command.** If you say "I'm running the job search now", the
    same reply must run it. Start `discover` and `sync-notion` (several minutes each) as background
-   terminal commands, then check their output about once a minute and report progress in chat.
+   terminal commands, then check their output about once a minute and report progress in chat. Never run another command (even `ps`) in the terminal a background command is using: it sends Ctrl-C and kills the run.
 
 ## After setup
 The user can just ask "find new jobs", "show my jobs" or "change my roles", and you run the matching

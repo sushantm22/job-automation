@@ -100,7 +100,8 @@ def fetch_jobspy_jobs(
             if loc.lower() not in {"remote", "india"} and loc not in loc_queries:
                 loc_queries.append(loc)
 
-    for term in keywords_list:
+    for number, term in enumerate(keywords_list, 1):
+        logger.info(f"[Tier 2] Searching job sites for '{term}' ({number}/{len(keywords_list)})...")
         # 1. Main location search across India
         for loc in loc_queries[:2]:  # Limit queries to avoid excessive rate limits
             try:

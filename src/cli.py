@@ -27,6 +27,22 @@ use_system_trust_store()
 app = typer.Typer(add_completion=False, help="Job application automation assistant")
 
 
+def _show_progress() -> None:
+    """Print this project's progress lines (not third-party logs) for long commands, so a run that
+    takes minutes visibly keeps moving instead of looking stuck."""
+    import logging
+    import sys
+
+    log = logging.getLogger("src")
+    if not any(getattr(h, "_progress", False) for h in log.handlers):
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        handler._progress = True  # type: ignore[attr-defined]
+        log.addHandler(handler)
+    log.setLevel(logging.INFO)
+    log.propagate = False
+
+
 @app.command()
 def init() -> None:
     """Create the SQLite database and basic schema."""
@@ -70,6 +86,7 @@ def discover(
             typer.echo(f"Invalid tiers format: '{tiers}'. Expected 'all' or '1,2,3,4'.")
             raise typer.Exit(code=1)
 
+    _show_progress()
     console.print("\n[bold cyan]🚀 Starting Multi-Tier Job Discovery Engine[/bold cyan]")
     console.print(f"Active Tiers: [green]{selected_tiers}[/green] | Target: Pan-India & Remote\n")
 
@@ -395,7 +412,8 @@ def sync_notion(
     """Syncs new jobs from SQLite database to the Notion Database table."""
     from .integrations.notion_client import sync_jobs_to_notion
 
-    typer.echo(f"Syncing jobs from SQLite to Notion...")
+    _show_progress()
+    typer.echo("Syncing jobs from SQLite to Notion...")
     try:
         res = sync_jobs_to_notion(database_id=database_id, limit=limit if limit > 0 else None)
         from .integrations.notion_client import sync_closed_status

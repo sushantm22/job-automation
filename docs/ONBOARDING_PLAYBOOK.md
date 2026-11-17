@@ -52,6 +52,10 @@ Use it whenever the user says anything like "set me up", "start using this repo"
    the background if your tool allows it (Copilot: run in terminal as a background command; Claude
    Code: `run_in_background`), then check the output about once a minute and tell the user how far
    it has got. Otherwise run them in the foreground with a timeout of about 15 minutes.
+   **While a background command runs, only read its output; never run another command in that
+   terminal** (not even `ps`): many tools send Ctrl-C first, which kills the run (exit code 130).
+   Both commands print progress lines; a minute without a new line is normal while a large
+   download or a slow site finishes. Wait for the exit before starting the next command.
 12. **Use as few tool calls as possible.** Many tools ask the user to approve every command, so
    combine consecutive commands into one call with `&&` (for example a step's command followed by
    `onboard status --json`), and don't run exploratory commands (`ls`, `which`, guessing paths).
@@ -167,13 +171,9 @@ the user approves once and the first results reach Notion before the slow part s
 
 (Use plain `discover` to also include Apify and Firecrawl if those keys were added.) Use background
 runs or long timeouts as described in rule 11, and report part 1's results as soon as its table
-appears in the output. While a run is going, the log lines
-`[Tier 1: Direct APIs] Total fetched`, `[Tier 1: JobHive] Total fetched` and
-`[Tier 2: JobSpy] Total fetched` show progress, and the Notion sync happens at the end of each run.
-Tier 1 also scrapes Keka and SuccessFactors career sites live, and reads the free JobHive dataset
-(Workday, Oracle, SuccessFactors, iCIMS, Darwinbox, Keka jobs in India, about 50 MB once a day), so the
-first run can find hundreds or thousands of matches. On later runs, jobs that are no longer listed
-are marked closed (in Notion: New/Reviewing → Closed; Applied/Interview are never changed).
+appears in the output. Progress lines show it is moving: `[Tier 1] Checking N company job boards...`,
+`[Tier 1] 50/207 boards checked...`, `[JobHive] workday (1/6)...`, `[Tier 2] Searching job sites for
+'<role>' (1/4)...` and `[Notion Sync] Sending N jobs to Notion...`.
 
 **Freshness rules (explain these to the user after the first run):**
 - Jobs posted more than `search.max_job_age_days` ago (default 30) are skipped, and stored jobs

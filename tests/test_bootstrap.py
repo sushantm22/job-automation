@@ -69,3 +69,46 @@ def test_set_key_refuses_instead_of_waiting_for_keyboard(monkeypatch, capsys):
         onboard_set_key("NOTION_API_KEY", verify=False, as_json=False)
     assert exc.value.exit_code == 2
     assert "no value piped in" in capsys.readouterr().err
+
+
+def test_discover_prints_progress_lines_while_tier1_runs(tmp_path):
+    # Long runs must visibly keep moving: Copilot interrupted a silent run, thinking it had hung.
+    import logging
+    from unittest.mock import patch
+
+    from src.config import Settings
+    from src.db import init_db
+    from src.discovery import engine as engine_mod
+
+    db = tmp_path / "jobs.db"
+    init_db(db)
+    eng = engine_mod.JobDiscoveryEngine(settings=Settings(notion_enabled=False), db_path=db)
+    lines: list[str] = []
+    handler = logging.Handler()
+    handler.emit = lambda record: lines.append(record.getMessage())
+    log = logging.getLogger("src.discovery.engine")
+    log.addHandler(handler)
+    old_level = log.level
+    log.setLevel(logging.INFO)
+    try:
+        with patch.object(eng.registry, "ensure_seeded", return_value=0), \
+             patch.object(eng.registry, "get_slugs_by_platform", return_value={"greenhouse": [f"c{i}" for i in range(30)]}), \
+             patch.object(engine_mod, "fetch_greenhouse_jobs", return_value=[]):
+            eng.run_tier1_direct_apis()
+    finally:
+        log.removeHandler(handler)
+        log.setLevel(old_level)
+    assert "[Tier 1] Checking 30 company job boards..." in lines
+    assert any(line.startswith("[Tier 1] 25/30 boards checked") for line in lines)
+
+
+def test_show_progress_enables_only_project_logs_once():
+    import logging
+
+    from src.cli import _show_progress
+
+    _show_progress()
+    _show_progress()
+    log = logging.getLogger("src")
+    assert log.level == logging.INFO and not log.propagate
+    assert sum(getattr(h, "_progress", False) for h in log.handlers) == 1

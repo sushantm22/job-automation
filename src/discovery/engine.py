@@ -30,6 +30,7 @@ from .smartrecruiters import fetch_smartrecruiters_jobs
 from .ats_scrapers_adapter import LIVE_PLATFORMS, fetch_live_ats_jobs
 
 logger = logging.getLogger(__name__)
+PROGRESS_EVERY = 25  # boards between progress lines, so long runs never look stuck
 
 
 def _count_unsynced(db_path) -> int:
@@ -69,10 +70,15 @@ class JobDiscoveryEngine:
         self.registry_seeded = self.registry.ensure_seeded()
         slugs_by_platform = self.registry.get_slugs_by_platform(limit=company_limit, stale_first=True)
         discovered: list[JobRecord] = []
-        polled = offline_failures = 0
+        polled = offline_failures = done = 0
+        total = sum(len(s) for s in slugs_by_platform.values())
+        logger.info(f"[Tier 1] Checking {total} company job boards...")
 
         for platform, slugs in slugs_by_platform.items():
             for slug in slugs:
+                done += 1
+                if done % PROGRESS_EVERY == 0:
+                    logger.info(f"[Tier 1] {done}/{total} boards checked, {len(discovered)} jobs so far...")
                 try:
                     if platform == "greenhouse":
                         jobs = fetch_greenhouse_jobs(slug)
@@ -130,6 +136,7 @@ class JobDiscoveryEngine:
         cache_key = hashlib.sha1(json.dumps(
             [s.search_keywords, s.locations, s.exclude_keywords, str(self.db_path)], sort_keys=True
         ).encode()).hexdigest()
+        logger.info("[Tier 1: JobHive] Reading the daily dataset (Workday, Oracle, SuccessFactors, ...)...")
         try:
             jobs = fetch_jobhive_jobs(
                 platforms=s.jobhive_platforms,

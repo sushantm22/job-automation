@@ -325,8 +325,12 @@ def sync_jobs_to_notion(
     synced = 0
     failed = 0
     skipped = 0
+    if rows:
+        logger.info(f"[Notion Sync] Sending {len(rows)} jobs to Notion (about 3 per second)...")
 
-    for r in rows:
+    for number, r in enumerate(rows, 1):
+        if number % 50 == 0:
+            logger.info(f"[Notion Sync] {number}/{len(rows)} processed...")
         job_dict = dict(r)
         if job_dict["id"] not in valid_ids:
             # Mark filtered out so it doesn't poll repeatedly
