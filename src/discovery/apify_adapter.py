@@ -133,9 +133,12 @@ def fetch_apify_naukri_jobs(
         f"?token={parse.quote(token)}&timeout={int(timeout)}"
     )
 
-    query_str = keywords[0] if keywords else "SDET"
+    if not keywords:
+        logger.info("[Tier 3: Apify] No job titles are set. Skipping Tier 3.")
+        return []
+    query_str = keywords[0]
     loc_str = locations[0] if locations else "India"
-    keywords_str = ", ".join(keywords[:3]) if keywords else "SDET"
+    keywords_str = ", ".join(keywords[:3])
 
     actor_input = {
         "keyword": query_str,

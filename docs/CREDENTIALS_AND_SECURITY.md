@@ -55,7 +55,7 @@ If any credential is accidentally saved in a tracked file, `verify-secrets` halt
 ## 3. How to Obtain Credentials
 
 ### A. Tier 1 & Tier 2: 100% Free (No API Keys Required)
-* **Tier 1 (Direct ATS APIs):** Directly queries open JSON APIs for Greenhouse, Lever, and Ashby.
+* **Tier 1 (Direct ATS APIs):** Directly queries open JSON APIs for Greenhouse, Lever, Ashby and SmartRecruiters.
 * **Tier 2 (JobSpy Aggregators):** Queries LinkedIn, Indeed, and Glassdoor without browser overhead.
 * **No keys or credit cards needed!**
 

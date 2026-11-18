@@ -8,6 +8,7 @@ from .harvester import extract_ats_slugs, probe_company_board, resolve_domain_to
 from .jobspy_adapter import fetch_jobspy_jobs, parse_jobspy_dataframe
 from .lever import fetch_lever_jobs, parse_lever_jobs
 from .registry import CompanyRegistry
+from .smartrecruiters import fetch_smartrecruiters_jobs, parse_smartrecruiters_postings
 
 __all__ = [
     "JobRecord",
@@ -29,4 +30,6 @@ __all__ = [
     "probe_company_board",
     "resolve_domain_to_ats",
     "CompanyRegistry",
+    "fetch_smartrecruiters_jobs",
+    "parse_smartrecruiters_postings",
 ]

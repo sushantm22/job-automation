@@ -4,36 +4,42 @@ Welcome! This system automates job opportunity discovery across 4 resilient tier
 
 ---
 
-## ⚡ 3-Minute Setup
+## ⚡ Easiest Setup: Let Your AI Assistant Do It (Recommended)
 
-### 1. Clone & Set Up Python Environment
-```bash
-# 1. Clone repository
-git clone <your-repo-url>
-cd Automate-Applications
+1. Get the code:
+   ```bash
+   git clone https://github.com/sushantm22/job-automation.git
+   ```
+2. Open the folder in an AI coding assistant that can run commands: **Claude Code, Cursor, OpenAI Codex,
+   GitHub Copilot (agent mode) or Gemini CLI**.
+3. Type: **"Set me up"**
 
-# 2. Create and activate a Python 3.10+ virtual environment
-python3 -m venv .venv
-source .venv/bin/activate    # On Windows: .venv\Scripts\activate
+The assistant installs everything, asks you a few questions **in the chat** (which roles, which
+locations, optional Notion tracking and keys), runs your first job search, and shows you the matches.
+You don't need to type any commands. Afterwards, just ask it things like *"find new jobs"* or *"show my
+jobs"*.
 
-# 3. Install dependencies
-pip install -r requirements.txt
-```
+> Using ChatGPT/Claude/Gemini **on the web**? Those can't run commands on your computer. See
+> [docs/UNIVERSAL_AGENT_PROMPT.md](docs/UNIVERSAL_AGENT_PROMPT.md).
 
 ---
 
-### 2. Run the Interactive Setup Wizard
-Run the onboarding agent to configure your target job roles, locations, and credentials:
+## 🖥️ Alternative: Set Up Yourself in a Terminal
 
 ```bash
+git clone https://github.com/sushantm22/job-automation.git
+cd job-automation
+
+# Python 3.10+: creates .venv, installs requirements, creates .env (Windows: py -3 bootstrap.py)
+python3 bootstrap.py
+source .venv/bin/activate    # On Windows: .venv\Scripts\activate
+
+# Interactive wizard: roles, profile, optional keys, Notion table
 python -m src.cli setup
 ```
 
-The interactive wizard will:
-1. Ask for your target job titles (e.g. *SDET, QA Automation, Backend Engineer*).
-2. Ask for your preferred locations (*India, Remote, Bengaluru, Pune, etc.*).
-3. Safely configure your API keys in your local `.env` file (which is strictly gitignored).
-4. Connect to Notion and automatically provision your personal **Notion Job Opportunities** table.
+Your choices are saved to gitignored files (`config.local.yaml`, `.env`, `data/profile.json`), so
+nothing personal ever gets committed.
 
 ---
 
@@ -41,9 +47,9 @@ The interactive wizard will:
 
 | Service / Tier | Required? | Cost | Description |
 | :--- | :---: | :---: | :--- |
-| **Tier 1 (Direct ATS APIs)** | **No** | **100% Free** | Direct JSON endpoints for Greenhouse, Lever, and Ashby across 500+ tech companies. **Zero API keys needed!** |
+| **Tier 1 (Direct ATS APIs)** | **No** | **100% Free** | Direct JSON endpoints for Greenhouse, Lever, Ashby and SmartRecruiters across 150+ companies, plus live Keka/SuccessFactors career sites and the free JobHive dataset (Workday, Oracle, SuccessFactors, Darwinbox, Keka, iCIMS); jobs that close are marked Closed. **Zero API keys needed!** |
 | **Tier 2 (JobSpy Aggregators)** | **No** | **100% Free** | Scrapes LinkedIn, Indeed, and Glassdoor without browser overhead. **Zero API keys needed!** |
-| **Google Gemini API** | Recommended | Free Tier | Used for evaluating job match relevance and resume tailoring. [Get free key here](https://aistudio.google.com/). |
+| **Google Gemini API** | Not used yet | Free Tier | Planned for job-match scoring and resume tailoring. Not needed today. |
 | **Tier 3 (Apify Naukri)** | Optional | Free (\$5/mo) | Solves Cloudflare & residential proxies for Naukri. [Get free token here](https://console.apify.com/account/integrations). |
 | **Tier 4 (Firecrawl)** | Optional | Free (500 credits) | AI crawler for custom JavaScript portals (Google, Apple, Netflix). [Get free key here](https://firecrawl.dev/). |
 | **Notion Integration** | Optional | Free | Syncs discovered jobs into an interactive Notion board. [Get internal integration token](https://www.notion.so/my-integrations). |
@@ -69,7 +75,7 @@ python -m src.cli discover --company-limit 20
 
 ### 2. Sync Existing SQLite Records to Notion
 ```bash
-python -m src.cli sync-notion --limit 50
+python -m src.cli sync-notion            # pushes every job not yet in Notion
 ```
 
 ### 3. Reset Your Local Database to a Clean Slate

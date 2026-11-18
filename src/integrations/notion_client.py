@@ -2,17 +2,71 @@ from __future__ import annotations
 
 import json
 import logging
+import ssl
+import time
 from datetime import datetime, timezone
 from typing import Any
 from urllib import request, error
 
 from ..config import Settings, load_settings
-from ..db import DB_PATH, get_connection
+from ..db import DB_PATH, get_connection, init_db
+from ..utils.net import never_reached_server
 
 logger = logging.getLogger(__name__)
 
 NOTION_API_VERSION = "2022-06-28"
 NOTION_BASE_URL = "https://api.notion.com/v1"
+
+
+# Select-option colors the Notion API accepts (anything else is a 400 validation_error).
+NOTION_SELECT_COLORS = {"default", "gray", "brown", "orange", "yellow", "green", "blue", "purple", "pink", "red"}
+
+
+# Waits before retrying a request that never reached Notion (DNS lookup failed / connection refused).
+NETWORK_RETRY_DELAYS = (1.0, 3.0)
+
+
+def _send_json(req: request.Request, timeout: float) -> dict[str, Any]:
+    """Sends a Notion API request, retrying briefly if the network was momentarily unavailable."""
+    for attempt in range(len(NETWORK_RETRY_DELAYS) + 1):
+        try:
+            with request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (error.URLError, OSError) as err:
+            if attempt >= len(NETWORK_RETRY_DELAYS) or not never_reached_server(err):
+                raise
+            logger.info(f"[Notion] Could not reach api.notion.com ({err}); retrying.")
+            time.sleep(NETWORK_RETRY_DELAYS[attempt])
+    raise RuntimeError("unreachable")
+
+
+def explain_notion_error(err: Exception) -> tuple[str, bool]:
+    """
+    Returns (a message for the user, whether the "share the page with your integration" tip applies).
+    Only 401/403/404 are access problems. A 400 is a malformed request, and a network failure never
+    reached Notion at all, so the sharing tip would mislead in those cases.
+    """
+    if isinstance(err, error.HTTPError):
+        message = ""
+        try:
+            message = json.loads(err.read().decode("utf-8")).get("message", "")
+        except Exception:
+            pass
+        return message or str(err), err.code in (401, 403, 404)
+    if isinstance(err, (error.URLError, OSError)):
+        reason = getattr(err, "reason", err)
+        if isinstance(reason, ssl.SSLError) or isinstance(err, ssl.SSLError):
+            return (
+                f"Couldn't verify Notion's security certificate: {reason}. This is a certificate setup "
+                "problem on this computer, not your Notion setup or key.",
+                False,
+            )
+        return (
+            f"Couldn't reach Notion (api.notion.com): {reason}. This is a network problem, not your Notion "
+            "setup. Check the internet connection (or allow network access for this tool) and try again.",
+            False,
+        )
+    return str(err), False
 
 
 def get_notion_headers(api_token: str) -> dict[str, str]:
@@ -57,6 +111,9 @@ def create_notion_job_database(
     payload = {
         "parent": {"type": "page_id", "page_id": page_id},
         "title": [{"type": "text", "text": {"content": title}}],
+        # Inline: the table renders directly on the parent page. A full-page database only shows
+        # there as a one-line link, which new users mistook for "no table was created".
+        "is_inline": True,
         "properties": {
             "Role Title": {"title": {}},
             "Company": {
@@ -78,7 +135,7 @@ def create_notion_job_database(
                         {"name": "Google", "color": "pink"},
                         {"name": "Apple", "color": "gray"},
                         {"name": "Netflix", "color": "red"},
-                        {"name": "Uber", "color": "black"},
+                        {"name": "Uber", "color": "default"},
                     ]
                 }
             },
@@ -92,6 +149,7 @@ def create_notion_job_database(
                         {"name": "Applied", "color": "green"},
                         {"name": "Interview", "color": "purple"},
                         {"name": "Archived", "color": "gray"},
+                        {"name": "Closed", "color": "brown"},
                     ]
                 }
             },
@@ -106,12 +164,11 @@ def create_notion_job_database(
         method="POST",
     )
 
-    with request.urlopen(req, timeout=timeout) as resp:
-        res_data = json.loads(resp.read().decode("utf-8"))
-        db_id = res_data.get("id")
-        db_url = res_data.get("url")
-        logger.info(f"Created Notion Database: {title} ({db_id})")
-        return {"id": db_id, "url": db_url, "title": title}
+    res_data = _send_json(req, timeout)
+    db_id = res_data.get("id")
+    db_url = res_data.get("url")
+    logger.info(f"Created Notion Database: {title} ({db_id})")
+    return {"id": db_id, "url": db_url, "title": title}
 
 
 def format_job_properties(job: dict[str, Any]) -> dict[str, Any]:
@@ -219,9 +276,8 @@ def push_job_to_notion(
         method="POST",
     )
 
-    with request.urlopen(req, timeout=timeout) as resp:
-        res = json.loads(resp.read().decode("utf-8"))
-        return res.get("id") or ""
+    res = _send_json(req, timeout)
+    return res.get("id") or ""
 
 
 def sync_jobs_to_notion(
@@ -241,10 +297,12 @@ def sync_jobs_to_notion(
     if not token or not target_db_id:
         logger.info("[Notion Sync] NOTION_API_KEY or NOTION_DATABASE_ID missing. Skipping Notion sync.")
         return {"synced": 0, "failed": 0, "skipped": 0}
+    init_db(db_path)  # adds columns introduced after this database was created (e.g. closed_at)
 
     conn = get_connection(db_path)
     try:
-        query = "SELECT * FROM jobs WHERE notion_page_id IS NULL ORDER BY id DESC"
+        # Closed jobs (gone from their source) are never pushed as new rows.
+        query = "SELECT * FROM jobs WHERE notion_page_id IS NULL AND closed_at IS NULL ORDER BY id DESC"
         if limit:
             query += f" LIMIT {int(limit)}"
         rows = conn.execute(query).fetchall()
@@ -267,8 +325,12 @@ def sync_jobs_to_notion(
     synced = 0
     failed = 0
     skipped = 0
+    if rows:
+        logger.info(f"[Notion Sync] Sending {len(rows)} jobs to Notion (about 3 per second)...")
 
-    for r in rows:
+    for number, r in enumerate(rows, 1):
+        if number % 50 == 0:
+            logger.info(f"[Notion Sync] {number}/{len(rows)} processed...")
         job_dict = dict(r)
         if job_dict["id"] not in valid_ids:
             # Mark filtered out so it doesn't poll repeatedly
@@ -296,3 +358,76 @@ def sync_jobs_to_notion(
             failed += 1
 
     return {"synced": synced, "failed": failed, "skipped": skipped}
+
+
+# Notion statuses closed-job tracking may change. Anything else (Applied, Interview, ...) is the
+# user's own progress and is never overwritten.
+CLOSABLE_NOTION_STATUSES = {None, "New", "Reviewing"}
+
+
+def _page_status(page_id: str, token: str, timeout: float) -> str | None:
+    req = request.Request(f"{NOTION_BASE_URL}/pages/{page_id}", headers=get_notion_headers(token), method="GET")
+    props = _send_json(req, timeout).get("properties") or {}
+    return ((props.get("Status") or {}).get("select") or {}).get("name")
+
+
+def _set_page_status(page_id: str, status: str, token: str, timeout: float) -> None:
+    body = {"properties": {"Status": {"select": {"name": status}}}}
+    req = request.Request(
+        f"{NOTION_BASE_URL}/pages/{page_id}",
+        data=json.dumps(body).encode("utf-8"),
+        headers=get_notion_headers(token),
+        method="PATCH",
+    )
+    _send_json(req, timeout)
+
+
+def sync_closed_status(
+    api_token: str | None = None,
+    db_path=DB_PATH,
+    timeout: float = 15.0,
+) -> dict[str, int]:
+    """
+    Mirrors closed-job tracking into Notion: rows for closed jobs go New/Reviewing -> Closed, and
+    reopened jobs go Closed -> New. Rows the user moved to another status are left alone.
+    """
+    settings = load_settings()
+    token = (api_token or settings.notion_api_token).strip()
+    result = {"closed": 0, "reopened": 0, "left_alone": 0, "failed": 0}
+    if not token:
+        return result
+    init_db(db_path)
+
+    real_page = "notion_page_id IS NOT NULL AND notion_page_id NOT LIKE 'skipped%'"
+    conn = get_connection(db_path)
+    try:
+        to_close = conn.execute(
+            f"SELECT id, notion_page_id FROM jobs WHERE closed_at IS NOT NULL AND notion_closed = 0 AND {real_page}"
+        ).fetchall()
+        to_reopen = conn.execute(
+            f"SELECT id, notion_page_id FROM jobs WHERE closed_at IS NULL AND notion_closed = 1 AND {real_page}"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    for rows, wanted_from, new_status, flag, key in (
+        (to_close, CLOSABLE_NOTION_STATUSES, "Closed", 1, "closed"),
+        (to_reopen, {"Closed"}, "New", 0, "reopened"),
+    ):
+        for row in rows:
+            try:
+                if _page_status(row["notion_page_id"], token, timeout) in wanted_from:
+                    _set_page_status(row["notion_page_id"], new_status, token, timeout)
+                    result[key] += 1
+                else:
+                    result["left_alone"] += 1
+                conn = get_connection(db_path)
+                try:
+                    conn.execute("UPDATE jobs SET notion_closed = ? WHERE id = ?", (flag, row["id"]))
+                    conn.commit()
+                finally:
+                    conn.close()
+            except Exception as err:
+                logger.warning(f"[Notion] Could not update status for job {row['id']}: {err}")
+                result["failed"] += 1
+    return result

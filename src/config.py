@@ -10,6 +10,30 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config.yaml"
+DEFAULT_DATABASE_PATH = ROOT / "data" / "jobs.db"
+
+
+def load_env_file() -> None:
+    """Loads the project .env into os.environ without overriding variables already set."""
+    env_file = ROOT / ".env"
+    if env_file.exists():
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(env_file, override=False)
+        except Exception:
+            pass
+
+
+def resolve_database_path(raw: str | os.PathLike[str] | None = None) -> Path:
+    """
+    Resolves the SQLite ledger location from a DATABASE_PATH value.
+    Empty -> data/jobs.db. Relative paths resolve against the project root (not the
+    current working directory), so `DATABASE_PATH=data/alice.db` works from anywhere.
+    """
+    if raw is None or not str(raw).strip():
+        return DEFAULT_DATABASE_PATH
+    path = Path(str(raw).strip()).expanduser()
+    return path if path.is_absolute() else ROOT / path
 
 
 class Settings(BaseSettings):
@@ -22,10 +46,12 @@ class Settings(BaseSettings):
 
     llm_provider: str = Field(default="gemini", validation_alias=AliasChoices("LLM_PROVIDER", "llm_provider"))
     llm_model: str = Field(default="gemini-2.5-flash", validation_alias=AliasChoices("LLM_MODEL", "llm_model"))
-    search_keywords: list[str] = Field(default_factory=lambda: ["backend engineer", "python developer"])
+    search_keywords: list[str] = Field(default_factory=list)  # no shipped roles: set per user (config.local.yaml)
     locations: list[str] = Field(default_factory=lambda: ["Remote", "Bengaluru"])
     exclude_keywords: list[str] = Field(default_factory=lambda: ["intern", "unpaid", "10+ years"])
     min_match_score: int = 70
+    max_job_age_days: int = 30
+    undated_jobs: str = "first_seen"
     max_applications_per_day: int = 15
     min_delay_seconds: int = 2
     max_delay_seconds: int = 6
@@ -44,12 +70,15 @@ class Settings(BaseSettings):
     firecrawl_api_key: str = Field(default="", validation_alias=AliasChoices("FIRECRAWL_API_KEY", "firecrawl_api_key"))
     enterprise_portals: list[dict[str, str]] = Field(default_factory=list)
     firecrawl_daily_budget: int = 10
-    database_path: Path = Field(default=ROOT / "data" / "jobs.db", validation_alias=AliasChoices("DATABASE_PATH", "database_path"))
+    jobhive_enabled: bool = True
+    jobhive_platforms: list[str] = Field(default_factory=lambda: ["workday", "oracle", "successfactors", "icims", "darwinbox", "keka"])
+    database_path: Path = Field(default=DEFAULT_DATABASE_PATH, validation_alias=AliasChoices("DATABASE_PATH", "database_path"))
     notion_enabled: bool = True
     notion_api_token: str = Field(default="", validation_alias=AliasChoices("NOTION_API_KEY", "notion_api_token"))
     notion_database_id: str = Field(default="", validation_alias=AliasChoices("NOTION_DATABASE_ID", "notion_database_id"))
     notion_parent_page_id: str = Field(default="", validation_alias=AliasChoices("NOTION_PARENT_PAGE_ID", "notion_parent_page_id"))
     notion_auto_sync: bool = True
+    notion_max_sync_per_run: int = 200
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -62,17 +91,26 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def load_settings(config_path: Path = CONFIG_PATH) -> Settings:
-    # Ensure .env is read into environment if present
-    env_file = ROOT / ".env"
-    if env_file.exists():
-        try:
-            from dotenv import load_dotenv
-            load_dotenv(env_file, override=False)
-        except Exception:
-            pass
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
 
-    raw = _read_yaml(config_path)
+
+def local_config_path(config_path: Path = CONFIG_PATH) -> Path:
+    """Per-user overrides (roles, locations, ...) live next to config.yaml in a gitignored file."""
+    return config_path.with_name("config.local.yaml")
+
+
+def load_settings(config_path: Path = CONFIG_PATH) -> Settings:
+    load_env_file()
+
+    # config.yaml holds shared defaults; config.local.yaml (gitignored) holds this user's choices.
+    raw = _deep_merge(_read_yaml(config_path), _read_yaml(local_config_path(config_path)))
 
     search_cfg = raw.get("search", {})
     limits_cfg = raw.get("limits", {})
@@ -83,10 +121,12 @@ def load_settings(config_path: Path = CONFIG_PATH) -> Settings:
     tiers_cfg = discovery_cfg.get("tiers", {})
 
     merged: dict[str, Any] = {
-        "search_keywords": search_cfg.get("keywords", ["backend engineer", "python developer"]),
+        "search_keywords": search_cfg.get("keywords") or [],
         "locations": search_cfg.get("locations", ["Remote", "Bengaluru"]),
         "exclude_keywords": search_cfg.get("exclude_keywords", ["intern", "unpaid", "10+ years"]),
         "min_match_score": search_cfg.get("min_match_score", 70),
+        "max_job_age_days": search_cfg.get("max_job_age_days", 30),
+        "undated_jobs": search_cfg.get("undated_jobs", "first_seen"),
         "max_applications_per_day": limits_cfg.get("max_applications_per_day", 15),
         "min_delay_seconds": limits_cfg.get("min_delay_seconds", 2),
         "max_delay_seconds": limits_cfg.get("max_delay_seconds", 6),
@@ -105,17 +145,22 @@ def load_settings(config_path: Path = CONFIG_PATH) -> Settings:
         "firecrawl_api_key": discovery_cfg.get("firecrawl_api_key", ""),
         "enterprise_portals": discovery_cfg.get("enterprise_portals", []),
         "firecrawl_daily_budget": discovery_cfg.get("firecrawl_daily_budget", 10),
+        "jobhive_enabled": (discovery_cfg.get("jobhive") or {}).get("enabled", True),
+        "jobhive_platforms": (discovery_cfg.get("jobhive") or {}).get(
+            "platforms", ["workday", "oracle", "successfactors", "icims", "darwinbox", "keka"]
+        ),
         "notion_enabled": raw.get("notion", {}).get("enabled", True),
         "notion_api_token": raw.get("notion", {}).get("api_token", ""),
         "notion_database_id": raw.get("notion", {}).get("database_id", ""),
         "notion_parent_page_id": raw.get("notion", {}).get("parent_page_id", ""),
         "notion_auto_sync": raw.get("notion", {}).get("auto_sync_on_discover", True),
+        "notion_max_sync_per_run": raw.get("notion", {}).get("max_sync_per_run", 200),
     }
 
     env_values = {
         "llm_provider": os.getenv("LLM_PROVIDER"),
         "llm_model": os.getenv("LLM_MODEL"),
-        "database_path": Path(os.getenv("DATABASE_PATH")) if os.getenv("DATABASE_PATH") else None,
+        "database_path": resolve_database_path(os.getenv("DATABASE_PATH")) if os.getenv("DATABASE_PATH") else None,
         "apify_api_token": os.getenv("APIFY_API_TOKEN"),
         "firecrawl_api_key": os.getenv("FIRECRAWL_API_KEY"),
         "notion_api_token": os.getenv("NOTION_API_KEY"),

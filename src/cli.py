@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import List
 
 import typer
 import yaml
@@ -18,8 +19,28 @@ from .discovery import (
 )
 from .llm.base import MockLLMClient
 from .scoring import hard_filter_jobs, score_job
+from .utils.net import use_system_trust_store
+
+# Verify HTTPS with the OS trust store so certificate checks work in any terminal (e.g. VS Code/Copilot).
+use_system_trust_store()
 
 app = typer.Typer(add_completion=False, help="Job application automation assistant")
+
+
+def _show_progress() -> None:
+    """Print this project's progress lines (not third-party logs) for long commands, so a run that
+    takes minutes visibly keeps moving instead of looking stuck."""
+    import logging
+    import sys
+
+    log = logging.getLogger("src")
+    if not any(getattr(h, "_progress", False) for h in log.handlers):
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        handler._progress = True  # type: ignore[attr-defined]
+        log.addHandler(handler)
+    log.setLevel(logging.INFO)
+    log.propagate = False
 
 
 @app.command()
@@ -27,6 +48,9 @@ def init() -> None:
     """Create the SQLite database and basic schema."""
     db_path = init_db()
     typer.echo(f"Database initialized at {db_path}")
+    seeded = CompanyRegistry().ensure_seeded()
+    if seeded:
+        typer.echo(f"Loaded {seeded} company boards from companies.yaml into the registry.")
 
 
 @app.command()
@@ -38,7 +62,7 @@ def discover(
 ) -> None:
     """
     Executes the 4-Tier Zero-Human-Intervention Job Discovery Engine:
-      • Tier 1: Direct ATS APIs (Greenhouse / Lever / Ashby)
+      • Tier 1: Direct ATS APIs (Greenhouse / Lever / Ashby / SmartRecruiters)
       • Tier 2: JobSpy Aggregators (LinkedIn / Indeed / Glassdoor)
       • Tier 3: Apify Cloud Anti-Bot (Naukri & Protected Sites)
       • Tier 4: Firecrawl Enterprise Portals (Google / Apple / Uber / Netflix)
@@ -49,6 +73,14 @@ def discover(
 
     console = Console()
     settings = load_settings()
+    if not settings.search_keywords:
+        typer.echo(
+            "No job titles are set yet, so there is nothing to search for.\n"
+            "Set them with:  python -m src.cli onboard set-search --roles \"Sales Manager, Key Account Manager\"\n"
+            "(or tell your AI assistant which job titles you want)."
+        )
+        raise typer.Exit(code=1)
+    init_db()  # idempotent: a new user can run discover without running init first
     engine = JobDiscoveryEngine(settings=settings)
 
     # Parse requested tiers
@@ -61,6 +93,7 @@ def discover(
             typer.echo(f"Invalid tiers format: '{tiers}'. Expected 'all' or '1,2,3,4'.")
             raise typer.Exit(code=1)
 
+    _show_progress()
     console.print("\n[bold cyan]🚀 Starting Multi-Tier Job Discovery Engine[/bold cyan]")
     console.print(f"Active Tiers: [green]{selected_tiers}[/green] | Target: Pan-India & Remote\n")
 
@@ -78,8 +111,9 @@ def discover(
     table.add_column("Jobs Found", style="green", justify="right")
 
     tier_map = {
-        "tier1_direct_apis": ("Tier 1", "Direct APIs (Greenhouse / Lever / Ashby)"),
-        "tier2_jobspy": ("Tier 2", "JobSpy (LinkedIn / Indeed / Glassdoor)"),
+        "tier1_direct_apis": ("Tier 1", "Direct APIs (Greenhouse / Lever / Ashby / SmartRecruiters)"),
+        "tier1_jobhive": ("Tier 1", "JobHive dataset (Workday / Oracle / SuccessFactors / iCIMS / Darwinbox / Keka)"),
+        "tier2_jobspy": ("Tier 2", "JobSpy (LinkedIn / Indeed / Glassdoor / Naukri)"),
         "tier3_apify": ("Tier 3", "Apify (Naukri & Protected Aggregators)"),
         "tier4_firecrawl": ("Tier 4", "Firecrawl (Google / Apple / Enterprise Portals)"),
     }
@@ -94,12 +128,48 @@ def discover(
     table.add_row("[bold magenta]Notion Synced[/bold magenta]", "Live Opportunities in Notion Table", f"[bold magenta]{result.get('notion_synced', 0)}[/bold magenta]")
     console.print(table)
 
+    if result.get("network_unavailable"):
+        console.print(
+            "\n[bold red]❌ No internet access:[/bold red] none of the job sources could be reached, so nothing "
+            "was searched. Check your connection (AI tools that sandbox commands: allow network access) and run "
+            "discover again."
+        )
+        raise typer.Exit(code=1)
+
+    if result.get("total_discovered", 0) > 0:
+        from .onboard_steps import mark_step
+        mark_step("first_discovery")
+
+    if result.get("registry_seeded", 0) > 0:
+        console.print(f"🌱 [bold green]First run:[/bold green] loaded {result['registry_seeded']} company boards from companies.yaml into your registry.")
+
+    if result.get("too_old_skipped", 0) or result.get("baseline_skipped", 0):
+        console.print(
+            f"🧹 [bold]Freshness:[/bold] skipped {result.get('too_old_skipped', 0)} jobs posted more than "
+            f"{settings.max_job_age_days} days ago and {result.get('baseline_skipped', 0)} undated older listings "
+            "(Workday/SuccessFactors: only jobs that newly appear are added)."
+        )
+    if result.get("stale_closed", 0):
+        console.print(f"🗓  [bold]{result['stale_closed']} stored jobs[/bold] passed the age limit and were marked closed.")
+
+    if result.get("jobs_closed", 0) or result.get("jobs_reopened", 0):
+        console.print(
+            f"🔒 [bold]Closed-job tracking:[/bold] {result.get('jobs_closed', 0)} jobs no longer listed were marked "
+            f"closed, {result.get('jobs_reopened', 0)} reappeared and were reopened."
+        )
+
     if result.get("harvested_companies", 0) > 0:
         console.print(f"🌱 [bold green]Auto-Harvested:[/bold green] {result['harvested_companies']} new verified company ATS boards into registry!")
 
     if result.get("notion_synced", 0) > 0:
         console.print(f"📋 [bold cyan]Notion Table Updated:[/bold cyan] {result['notion_synced']} jobs synced to [link=https://app.notion.com/p/{settings.notion_database_id}]Notion Table[/link]")
-    elif settings.notion_enabled and settings.notion_database_id:
+    if result.get("notion_pending", 0) > 0:
+        console.print(
+            f"⏳ [bold yellow]{result['notion_pending']} more jobs are waiting for Notion[/bold yellow] "
+            f"(this run synced up to {settings.notion_max_sync_per_run}). Push them all with: "
+            "[bold cyan]python -m src.cli sync-notion[/bold cyan]"
+        )
+    elif result.get("notion_synced", 0) == 0 and settings.notion_enabled and settings.notion_database_id:
         console.print(f"📋 [dim]Notion Database:[/dim] All stored jobs are up to date in [link=https://app.notion.com/p/{settings.notion_database_id}]Notion[/link]")
 
 
@@ -303,28 +373,62 @@ def init_notion_db(
         typer.echo(f"  • Title: {title}")
         typer.echo(f"  • Database ID: {db_id}")
         typer.echo(f"  • Table URL: {db_url}")
-        typer.echo("\n👉 Update your .env or config.yaml with:")
-        typer.echo(f"NOTION_DATABASE_ID={clean_notion_id(db_id)}")
+        from .onboarding import write_env_file
+        write_env_file({
+            "NOTION_DATABASE_ID": clean_notion_id(db_id),
+            "NOTION_PARENT_PAGE_ID": clean_notion_id(parent_page_id),
+        })
+        typer.echo("✅ Saved NOTION_DATABASE_ID and NOTION_PARENT_PAGE_ID to .env — discovery will sync here automatically.")
     except Exception as err:
-        typer.echo(f"❌ Error creating Notion database: {err}")
-        typer.echo("\nTip: Make sure you have invited/connected 'notion pat' to your parent page in Notion:")
-        typer.echo("  1. Open the page in Notion")
-        typer.echo("  2. Click '...' (top-right) -> 'Connections' -> Select 'notion pat'")
+        from .integrations.notion_client import explain_notion_error
+        from .onboarding import NOTION_CONNECT_TIP
+        message, sharing_problem = explain_notion_error(err)
+        typer.echo(f"❌ Error creating Notion database: {message}")
+        if sharing_problem:
+            typer.echo(NOTION_CONNECT_TIP)
+        raise typer.Exit(code=1)
+
+
+@app.command("prune-old")
+def prune_old(
+    max_age_days: int = typer.Option(None, help="Override search.max_job_age_days for this run"),
+) -> None:
+    """Close stored jobs past the age limit (and old undated backlog); update their Notion rows."""
+    from . import db as db_module
+    from .integrations.notion_client import sync_closed_status
+
+    settings = load_settings()
+    days = max_age_days if max_age_days is not None else settings.max_job_age_days
+    db_path = db_module.DB_PATH
+    db_module.init_db(db_path)
+    closed = db_module.close_stale_jobs(days, db_path=db_path, first_seen=settings.undated_jobs == "first_seen")
+    typer.echo(f"Marked {closed} jobs older than {days} days (or old undated backlog) as closed.")
+    if settings.notion_enabled and settings.notion_database_id:
+        res = sync_closed_status(db_path=db_path)
+        typer.echo(
+            f"Notion: {res['closed']} rows set to Closed, {res['left_alone']} left alone "
+            f"(you had moved them past Reviewing), {res['failed']} failed."
+        )
 
 
 @app.command("sync-notion")
 def sync_notion(
-    limit: int = typer.Option(50, help="Max unsynced jobs to push in this batch"),
+    limit: int = typer.Option(0, help="Max unsynced jobs to push (0 = all pending)"),
     database_id: str = typer.Option(None, help="Target Notion Database ID (defaults to config)"),
 ) -> None:
     """Syncs new jobs from SQLite database to the Notion Database table."""
     from .integrations.notion_client import sync_jobs_to_notion
 
-    typer.echo(f"Syncing jobs from SQLite to Notion...")
+    _show_progress()
+    typer.echo("Syncing jobs from SQLite to Notion...")
     try:
-        res = sync_jobs_to_notion(database_id=database_id, limit=limit)
+        res = sync_jobs_to_notion(database_id=database_id, limit=limit if limit > 0 else None)
+        from .integrations.notion_client import sync_closed_status
+        closed = sync_closed_status()
         typer.echo(f"Sync complete:")
         typer.echo(f"  • {res['synced']} jobs synced to Notion")
+        if closed["closed"] or closed["reopened"]:
+            typer.echo(f"  • {closed['closed']} rows marked Closed, {closed['reopened']} reopened")
         if res.get("failed", 0) > 0:
             typer.echo(f"  • {res['failed']} jobs failed")
     except Exception as err:
@@ -383,6 +487,144 @@ def verify_secrets_cmd() -> None:
         raise typer.Exit(code=1)
     else:
         console.print("[bold green]✔ Security Audit Passed:[/bold green] Zero API keys or secrets detected in git-tracked files.")
+
+
+onboard_app = typer.Typer(
+    add_completion=False,
+    help="Non-interactive onboarding steps. Built for AI assistants: each command takes its answers as "
+    "arguments and never prompts. See docs/ONBOARDING_PLAYBOOK.md.",
+)
+app.add_typer(onboard_app, name="onboard")
+
+
+def _emit(data: dict, as_json: bool, human: str) -> None:
+    import json as _json
+    typer.echo(_json.dumps(data, indent=2) if as_json else human)
+
+
+@onboard_app.command("prepare")
+def onboard_prepare(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Step 0: create .env from .env.example, the database, and the company registry. Safe to re-run."""
+    from .onboard_steps import prepare
+
+    res = prepare()
+    lines = [
+        f".env: {'created from .env.example' if res['env_created'] else 'already exists'} ({res['env_file']})",
+        f"Database: {res['database']}",
+        f"Company boards: {res['registry_boards']}" + (f" (loaded {res['registry_seeded']} from companies.yaml)" if res["registry_seeded"] else ""),
+    ]
+    _emit(res, as_json, "\n".join(lines))
+
+
+@onboard_app.command("check-keys")
+def onboard_check_keys(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Check the keys in .env online without printing them (use after the user edits .env themselves)."""
+    from .onboard_steps import check_keys
+
+    res = check_keys()
+    _emit(res, as_json, "\n".join(f"{name}: {state}" for name, state in res.items()))
+
+
+@onboard_app.command("status")
+def onboard_status(as_json: bool = typer.Option(False, "--json", help="Machine-readable output")) -> None:
+    """Show what is set up, what is missing, and the next step."""
+    from .onboard_steps import STEP_ORDER, get_status
+
+    status = get_status()
+    lines = [f"Database: {status['database']}  |  Company boards: {status['registry_boards']}"]
+    for step_id in STEP_ORDER:
+        info = status["steps"][step_id]
+        mark = "✔" if info["done"] else "✗"
+        extra = " (skipped)" if info.get("skipped") else (" (optional)" if info.get("optional") and not info["done"] else "")
+        lines.append(f"  {mark} {step_id}{extra}")
+    lines.append("Onboarding complete." if status["complete"] else f"Next step: {status['next_step']}")
+    _emit(status, as_json, "\n".join(lines))
+
+
+@onboard_app.command("set-search")
+def onboard_set_search(
+    roles: str = typer.Option(None, help="Comma-separated job titles, e.g. 'Sales Manager, Key Account Manager'"),
+    locations: str = typer.Option(None, help="Comma-separated locations, e.g. 'India, Remote, Pune'"),
+    exclude: str = typer.Option(None, help="Comma-separated words that reject a job, e.g. 'intern, unpaid'"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Save target roles/locations to config.local.yaml (gitignored). Roles are required the first time; later, omit all options to keep what is saved."""
+    from .onboard_steps import set_search
+
+    try:
+        res = set_search(roles=roles, locations=locations, exclude=exclude)
+    except ValueError as err:
+        typer.echo(f"Error: {err}", err=True)
+        raise typer.Exit(code=1)
+    _emit(res, as_json, f"Search saved.\n  Roles: {', '.join(res['roles'])}\n  Locations: {', '.join(res['locations'])}\n  Exclude: {', '.join(res['exclude'])}")
+
+
+@onboard_app.command("set-profile")
+def onboard_set_profile(
+    fields: List[str] = typer.Argument(..., help="field=value pairs, e.g. first_name=Asha city=Pune resume=~/cv.pdf"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Fill data/profile.json (gitignored). A resume path outside the project is copied into data/."""
+    from .onboard_steps import PROFILE_FIELDS, set_profile
+
+    updates: dict[str, str] = {}
+    for item in fields:
+        if "=" not in item:
+            typer.echo(f"Error: '{item}' is not field=value. Fields: {', '.join(PROFILE_FIELDS)}", err=True)
+            raise typer.Exit(code=1)
+        key, value = item.split("=", 1)
+        updates[key.strip()] = value
+    try:
+        res = set_profile(updates)
+    except ValueError as err:
+        typer.echo(f"Error: {err}", err=True)
+        raise typer.Exit(code=1)
+    human = "Profile saved." + (f"\n  Still missing: {', '.join(res['missing'])}" if res["missing"] else "\n  Basic profile complete.")
+    _emit(res, as_json, human)
+
+
+@onboard_app.command("set-key")
+def onboard_set_key(
+    name: str = typer.Argument(..., help="NOTION_API_KEY | APIFY_API_TOKEN | FIRECRAWL_API_KEY | GEMINI_API_KEY"),
+    verify: bool = typer.Option(True, help="Check the key online where possible"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Save a secret to .env. The value is read from stdin so it never appears in the command line."""
+    import sys
+    from .onboard_steps import set_key
+
+    if sys.stdin.isatty():  # nothing piped in: reading would wait for keyboard input forever
+        typer.echo(
+            f"Error: no value piped in. Pipe the key, e.g. printf '%s' \"$KEY\" | ... onboard set-key {name}, "
+            "or let the user add it to .env themselves and run 'onboard check-keys'.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    try:
+        res = set_key(name.strip().upper(), sys.stdin.read(), verify=verify)
+    except ValueError as err:
+        typer.echo(f"Error: {err}", err=True)
+        raise typer.Exit(code=1)
+    check = {
+        "verified": "verified online",
+        "failed": "saved, but the online check FAILED (wrong or expired key?)",
+        "set (no online check)": "saved (no online check for this key)",
+        "not checked": "saved (not checked)",
+    }.get(res["check"], f"saved, but {res['check']}")
+    _emit(res, as_json, f"{res['saved']}: {check}")
+
+
+@onboard_app.command("skip")
+def onboard_skip(step: str = typer.Argument(..., help="api_keys | notion | profile")) -> None:
+    """Mark an optional step as skipped so status moves on."""
+    from .onboard_steps import skip_step
+
+    try:
+        skip_step(step)
+    except ValueError as err:
+        typer.echo(f"Error: {err}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"Skipped '{step}'. You can come back to it any time.")
 
 
 if __name__ == "__main__":

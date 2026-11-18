@@ -4,6 +4,13 @@ A semi-automated job application workflow for finding relevant roles, filtering 
 
 This project is designed to be local-first, deterministic, and safe by default. It does not require a live Gemini integration to be useful; the default LLM path uses a mock client for development and testing.
 
+## Get started in 1 minute
+
+Open this folder in an AI coding assistant that can run commands (Claude Code, Cursor, Codex, GitHub
+Copilot agent mode or Gemini CLI) and say **"Set me up"**. It installs everything, asks you a few
+questions in the chat, and runs your first job search. Prefer the terminal? See
+[QUICKSTART.md](QUICKSTART.md).
+
 ## What it does
 
 - discovers roles from company job boards
@@ -39,6 +46,10 @@ The project is organized into a few main areas:
 ## Quick start from scratch
 
 1. Open a terminal in the project root.
+
+   Shortcut: `python3 bootstrap.py` (Windows: `py -3 bootstrap.py`) does steps 2–4 in one go
+   (virtual environment, requirements, `.env`). Then activate the environment as in step 3.
+
 2. Create a virtual environment:
 
    ```bash
@@ -96,7 +107,7 @@ The project is organized into a few main areas:
 
 Controls the default job search and execution settings, such as:
 
-- keywords
+- keywords (empty by default: each user sets their own job titles during onboarding, saved to `config.local.yaml`)
 - locations
 - excluded job terms
 - max applications per day
@@ -109,7 +120,11 @@ Keep secrets local. The project intentionally avoids committing sensitive values
 
 ### `data/profile.json`
 
-This is the candidate profile used for form filling and matching. Update it with your real details before running the workflow.
+This is the candidate profile used for form filling and matching. It is gitignored so your personal details never get committed. `python -m src.cli setup` creates it from `data/profile.example.json` and asks for the basics; or copy it yourself:
+
+```bash
+cp data/profile.example.json data/profile.json
+```
 
 ## First-run checklist
 
@@ -146,7 +161,7 @@ Before the app is useful, fill in the values in `data/profile.json` that are act
 #### Experience and skills
 
 - `experience` with at least a few past roles and companies
-- `skills` such as Python, backend engineering, APIs, databases, distributed systems, etc.
+- `skills` relevant to your target roles (for example negotiation, CRM and forecasting for sales; Python and APIs for engineering)
 - `education` if the application asks for academic history
 - `languages` if relevant to the role or region
 
@@ -195,7 +210,7 @@ The app is structured so that:
 ## Project data files
 
 - `data/jobs.db` — the SQLite database
-- `data/profile.json` — profile and candidate details
+- `data/profile.json` — your profile and candidate details (gitignored; copy from `data/profile.example.json`)
 - `data/candidate_answers_reference.json` — your answers to common extra questions (gitignored; copy from `data/candidate_answers.example.json`)
 - `data/target_company_sites.json` — target company and portal list
 

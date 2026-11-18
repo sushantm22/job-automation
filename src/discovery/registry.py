@@ -16,7 +16,7 @@ DEFAULT_YAML_PATH = Path(__file__).resolve().parent / "companies.yaml"
 
 # Top-level keys in companies.yaml that hold ATS slug lists owned by the SQLite registry.
 # Every other key (e.g. `enterprise_portals` for Tier 4) is hand-maintained and must be preserved.
-ATS_PLATFORM_KEYS = {"greenhouse", "lever", "ashby", "smartrecruiters"}
+ATS_PLATFORM_KEYS = {"greenhouse", "lever", "ashby", "smartrecruiters", "keka", "successfactors"}
 
 
 def _load_yaml_dict(path: Path) -> dict[str, Any]:
@@ -154,6 +154,29 @@ class CompanyRegistry:
                     inserted += 1
 
         return inserted
+
+    def ensure_seeded(self, yaml_path: Path | str = DEFAULT_YAML_PATH) -> int:
+        """
+        Adds every company listed in companies.yaml that this registry has never seen: all of them
+        on a fresh clone / new DATABASE_PATH, and newly curated entries (e.g. a new platform) for
+        existing users. Companies already in the registry are left untouched, so boards pruned to
+        inactive stay pruned. Returns the number added.
+        """
+        data = _load_yaml_dict(Path(yaml_path))
+        known = {(r["platform"], r["slug"].lower()) for r in list_companies(status=None, db_path=self.db_path)}
+        added = 0
+        for platform, slugs in data.items():
+            if platform not in ATS_PLATFORM_KEYS or not isinstance(slugs, list):
+                continue
+            for slug in slugs:
+                if not isinstance(slug, str) or not slug.strip() or (platform, slug.strip().lower()) in known:
+                    continue
+                if upsert_company(platform=platform, slug=slug.strip(), status="active",
+                                  discovered_via="yaml_sync", db_path=self.db_path):
+                    added += 1
+        if added:
+            logger.info("Added %d companies from %s to the registry.", added, yaml_path)
+        return added
 
     def get_slugs_by_platform(
         self,

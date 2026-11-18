@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = ROOT / "data" / "jobs.db"
+from .config import ROOT, load_env_file, resolve_database_path
+
+# Resolved once at import from DATABASE_PATH (.env or environment) so every module that
+# defaults to DB_PATH — CLI, discovery engine, registry, Notion sync — uses the same ledger.
+load_env_file()
+DB_PATH = resolve_database_path(os.getenv("DATABASE_PATH"))
 
 
 SCHEMA = """
@@ -57,6 +62,17 @@ CREATE TABLE IF NOT EXISTS answer_bank (
     last_used TEXT
 );
 
+-- First-seen tracking for undated listings (see discovery/freshness.py). A scope is a dataset
+-- platform ("jobhive:workday") or one company of a live scraper ("successfactors|wipro limited").
+-- baseline=1: listed when the scope was first read (old backlog, not added as jobs).
+CREATE TABLE IF NOT EXISTS seen_listings (
+    url TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    first_seen TEXT NOT NULL,
+    baseline INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_seen_listings_scope ON seen_listings(scope);
+
 CREATE TABLE IF NOT EXISTS company_registry (
     id INTEGER PRIMARY KEY,
     platform TEXT NOT NULL,
@@ -83,10 +99,12 @@ def init_db(db_path: Path = DB_PATH) -> Path:
     connection = get_connection(db_path)
     try:
         connection.executescript(SCHEMA)
-        try:
-            connection.execute("ALTER TABLE jobs ADD COLUMN notion_page_id TEXT")
-        except sqlite3.OperationalError:
-            pass  # Already exists
+        # Columns added after the first release; ALTER fails harmlessly if they already exist.
+        for column in ("notion_page_id TEXT", "closed_at TEXT", "notion_closed INTEGER DEFAULT 0", "closed_reason TEXT"):
+            try:
+                connection.execute(f"ALTER TABLE jobs ADD COLUMN {column}")
+            except sqlite3.OperationalError:
+                pass
         connection.commit()
     finally:
         connection.close()
@@ -138,6 +156,124 @@ def list_jobs(status: str | None = None, db_path: Path = DB_PATH) -> list[sqlite
         else:
             rows = connection.execute("SELECT * FROM jobs ORDER BY discovered_at DESC").fetchall()
         return rows
+    finally:
+        connection.close()
+
+
+def close_missing_jobs(source: str, open_urls: set[str], db_path: Path = DB_PATH) -> int:
+    """
+    Closed-job tracking: marks jobs from `source` that are no longer in its latest complete
+    snapshot. Sets closed_at; the status changes to 'closed' only while it is still 'new', so a
+    job the user has moved on (reviewing/applied) keeps their status. Returns the number closed.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    connection = get_connection(db_path)
+    try:
+        rows = connection.execute(
+            "SELECT id, url FROM jobs WHERE source = ? AND closed_at IS NULL", (source,)
+        ).fetchall()
+        gone = [(now, r["id"]) for r in rows if r["url"] not in open_urls]
+        connection.executemany(
+            "UPDATE jobs SET closed_at = ?, closed_reason = 'gone', "
+            "status = CASE WHEN status = 'new' THEN 'closed' ELSE status END WHERE id = ?",
+            gone,
+        )
+        connection.commit()
+        return len(gone)
+    finally:
+        connection.close()
+
+
+def reopen_jobs(urls: set[str], db_path: Path = DB_PATH) -> int:
+    """
+    Clears closed_at for jobs closed as 'gone' that are seen again (any source). Jobs closed as
+    'too_old' never reopen. Returns the number reopened.
+    """
+    if not urls:
+        return 0
+    connection = get_connection(db_path)
+    try:
+        rows = connection.execute(
+            "SELECT id, url FROM jobs WHERE closed_at IS NOT NULL "
+            "AND (closed_reason IS NULL OR closed_reason = 'gone')"
+        ).fetchall()
+        back = [(r["id"],) for r in rows if r["url"] in urls]
+        connection.executemany(
+            "UPDATE jobs SET closed_at = NULL, closed_reason = NULL, "
+            "status = CASE WHEN status = 'closed' THEN 'new' ELSE status END WHERE id = ?",
+            back,
+        )
+        connection.commit()
+        return len(back)
+    finally:
+        connection.close()
+
+
+def admit_first_seen(scope_urls: dict[str, set[str]], db_path: Path = DB_PATH) -> set[str]:
+    """
+    First-seen tracking. For each scope: if it has never been read, record all its URLs as the
+    baseline and admit none; otherwise record and admit only URLs not seen before (new listings).
+    Returns the admitted URLs.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    admitted: set[str] = set()
+    connection = get_connection(db_path)
+    try:
+        for scope, urls in scope_urls.items():
+            known = {r["url"] for r in connection.execute("SELECT url FROM seen_listings WHERE scope = ?", (scope,))}
+            is_baseline = not known
+            new = urls - known
+            connection.executemany(
+                "INSERT OR IGNORE INTO seen_listings (url, scope, first_seen, baseline) VALUES (?, ?, ?, ?)",
+                [(u, scope, now, 1 if is_baseline else 0) for u in new],
+            )
+            if not is_baseline:
+                admitted |= new
+        connection.commit()
+        return admitted
+    finally:
+        connection.close()
+
+
+def close_stale_jobs(max_days: int, db_path: Path = DB_PATH, first_seen: bool = True) -> int:
+    """
+    Closes open jobs (reason 'too_old') that are past the age limit: a known posting date older
+    than max_days, or, for first-seen sources, first seen more than max_days ago or never admitted
+    as new (stored before first-seen tracking: old backlog). With first_seen=False (undated_jobs:
+    include), undated jobs are never closed for age. Returns the number closed.
+    """
+    from .discovery.freshness import is_too_old, uses_first_seen
+
+    if not max_days or max_days <= 0:
+        return 0
+    now = datetime.now(timezone.utc)
+    connection = get_connection(db_path)
+    try:
+        admitted = {
+            r["url"]: r["first_seen"]
+            for r in connection.execute("SELECT url, first_seen FROM seen_listings WHERE baseline = 0")
+        }
+        rows = connection.execute(
+            "SELECT id, url, source, posted_at FROM jobs WHERE closed_at IS NULL"
+        ).fetchall()
+        stale = []
+        for r in rows:
+            if r["posted_at"]:
+                old = is_too_old(r["posted_at"], max_days, now)
+            elif first_seen and uses_first_seen(r["source"] or ""):
+                seen_on = admitted.get(r["url"])  # not `first_seen`: that name is the on/off parameter
+                old = seen_on is None or is_too_old(seen_on, max_days, now)
+            else:
+                old = False
+            if old:
+                stale.append((now.isoformat(), r["id"]))
+        connection.executemany(
+            "UPDATE jobs SET closed_at = ?, closed_reason = 'too_old', "
+            "status = CASE WHEN status = 'new' THEN 'closed' ELSE status END WHERE id = ?",
+            stale,
+        )
+        connection.commit()
+        return len(stale)
     finally:
         connection.close()
 
@@ -231,21 +367,26 @@ def mark_company_checked(
     slug: str,
     job_count: int | None = None,
     db_path: Path = DB_PATH,
+    status: str | None = None,
 ) -> None:
-    """Stamps last_checked_at (and optionally job_count) after a Tier 1 poll, leaving name/status untouched."""
+    """
+    Stamps last_checked_at after a Tier 1 poll, optionally updating job_count and status.
+    The company name is never touched (upsert_company would overwrite it with a slug-derived name).
+    """
     now = datetime.now(timezone.utc).isoformat()
+    sets, params = ["last_checked_at = ?"], [now]
+    if job_count is not None:
+        sets.append("job_count = ?")
+        params.append(int(job_count))
+    if status is not None:
+        sets.append("status = ?")
+        params.append(status)
     connection = get_connection(db_path)
     try:
-        if job_count is None:
-            connection.execute(
-                "UPDATE company_registry SET last_checked_at = ? WHERE platform = ? AND slug = ?",
-                (now, platform.lower().strip(), slug),
-            )
-        else:
-            connection.execute(
-                "UPDATE company_registry SET last_checked_at = ?, job_count = ? WHERE platform = ? AND slug = ?",
-                (now, int(job_count), platform.lower().strip(), slug),
-            )
+        connection.execute(
+            f"UPDATE company_registry SET {', '.join(sets)} WHERE platform = ? AND slug = ?",
+            (*params, platform.lower().strip(), slug),
+        )
         connection.commit()
     finally:
         connection.close()
@@ -287,6 +428,7 @@ def reset_db(db_path: Path = DB_PATH) -> dict[str, int]:
         apps_count = connection.execute("SELECT count(*) FROM applications").fetchone()[0]
         connection.execute("DELETE FROM applications")
         connection.execute("DELETE FROM jobs")
+        connection.execute("DELETE FROM seen_listings")  # clean slate: baselines are re-established
         try:
             connection.execute("DELETE FROM sqlite_sequence WHERE name IN ('jobs', 'applications')")
         except sqlite3.OperationalError:
@@ -294,6 +436,8 @@ def reset_db(db_path: Path = DB_PATH) -> dict[str, int]:
         connection.commit()
         connection.execute("VACUUM")
         connection.commit()
+        # The JobHive cache marks dataset files as "already processed"; after a reset they aren't.
+        Path(f"{db_path}.jobhive-cache.json").unlink(missing_ok=True)
         return {"jobs_deleted": jobs_count, "applications_deleted": apps_count}
     finally:
         connection.close()

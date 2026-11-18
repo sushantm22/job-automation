@@ -141,21 +141,91 @@ greenhouse:
 lever:
 - educative
 - metabase
+keka:
+- https://100.keka.com/careers
+- https://aga.keka.com/careers
+- https://algoshack.keka.com/careers
+- https://astpl.keka.com/careers
+- https://attero.keka.com/careers
+- https://berkowits.keka.com/careers
+- https://blitznow.keka.com/careers
+- https://cis.keka.com/careers
+- https://cloudthat.keka.com/careers
+- https://crepdogcrew.keka.com/careers
+- https://dreamtime.keka.com/careers
+- https://driverlogistics.keka.com/careers
+- https://fynd.keka.com/careers
+- https://gamlaa.keka.com/careers
+- https://getvisitapp.keka.com/careers
+- https://hiveminds.keka.com/careers
+- https://hr.keka.com/careers
+- https://kpgroup.keka.com/careers
+- https://minfy.keka.com/careers
+- https://saladdays.keka.com/careers
+- https://scimplify.keka.com/careers
+- https://shreenm.keka.com/careers
+- https://softobiz.keka.com/careers
+- https://thf.keka.com/careers
+- https://toprankers.keka.com/careers
+- https://tvsnext.keka.com/careers
+- https://universaled.keka.com/careers
+- https://vyaparapp.keka.com/careers
+- https://zippee.keka.com/careers
+successfactors:
+- apply.mottmac.com
+- assaabloy.jobs2web.com
+- basf.jobs
+- careers-inc.nttdata.com
+- careers.asianpaints.com
+- careers.bajajauto.com
+- careers.bv.com
+- careers.capgemini.com
+- careers.nomura.com
+- careers.tatamotors.com
+- careers.te.com
+- careers.vodafoneidea.com
+- careers.wipro.com
+- careers.yash.com
+- jobs.birlasoft.com
+- jobs.cargill.com
+- jobs.mahindracareers.com
+- jobs.nordex-online.com
+- jobs.standardchartered.com
+- jobs.vibrantm.com
+- jobsearch.alstom.com
+- opportunities.lamresearch.com
+- opportunities.vodafone.com
+- southasiacareers.deloitte.com
+smartrecruiters:
+- AveryDennison
+- BoschGroup
+- Continental
+- Endava
+- Experian
+- Freshworks
+- Grab
+- NielsenIQ
+- SGS
+- ServiceNow
+- Swiggy
+- Ubisoft2
+- Wabtec
+- WesternDigital
 enterprise_portals:
 - name: Google
-  url: https://www.google.com/about/careers/applications/jobs/results?q=software+engineer+india
+  url: "https://www.google.com/about/careers/applications/jobs/results?q={query}+india"
 - name: Apple
-  url: https://jobs.apple.com/en-in/search?search=software
+  url: "https://jobs.apple.com/en-in/search?search={query}"
 - name: Uber
   url: https://www.uber.com/global/en/careers/list/?location=IND--Bangalore
 - name: Netflix
-  url: https://explore.jobs.netflix.net/careers?query=software
+  url: "https://explore.jobs.netflix.net/careers?query={query}"
 - name: Microsoft
-  url: https://careers.microsoft.com/us/en/search-results?keywords=software%20engineer&location=India
+  url: "https://careers.microsoft.com/us/en/search-results?keywords={query}&location=India"
 - name: Amazon
-  url: https://www.amazon.jobs/en/search?base_query=software+engineer&loc_query=India
+  url: "https://www.amazon.jobs/en/search?base_query={query}&loc_query=India"
 - name: Meta
-  url: https://www.metacareers.com/jobs?q=software%20engineer&location[0]=India
+  url: "https://www.metacareers.com/jobs?q={query}&location[0]=India"
 - name: Flipkart
   url: https://www.flipkartcareers.com/#!/joblist
 - name: Swiggy
@@ -169,16 +239,16 @@ enterprise_portals:
 - name: CRED
   url: https://careers.cred.club/openings
 - name: Walmart
-  url: https://careers.walmart.com/results?q=software%20engineer&page=1&sort=rank&jobCity=India
+  url: "https://careers.walmart.com/results?q={query}&page=1&sort=rank&jobCity=India"
 - name: Adobe
-  url: https://careers.adobe.com/us/en/search-results?keywords=software%20engineer&location=India
+  url: "https://careers.adobe.com/us/en/search-results?keywords={query}&location=India"
 - name: Salesforce
-  url: https://careers.salesforce.com/en/jobs/?search=software+engineer&location=India
+  url: "https://careers.salesforce.com/en/jobs/?search={query}&location=India"
 - name: SAP
-  url: https://jobs.sap.com/search/?q=software+engineer&locationsearch=India
+  url: "https://jobs.sap.com/search/?q={query}&locationsearch=India"
 - name: Atlassian
-  url: https://www.atlassian.com/company/careers/all-jobs?location=India&search=engineer
+  url: "https://www.atlassian.com/company/careers/all-jobs?location=India&search={query}"
 - name: Spotify
-  url: https://www.lifeatspotify.com/jobs?l=india&q=engineer
+  url: "https://www.lifeatspotify.com/jobs?l=india&q={query}"
 - name: PayPal
-  url: https://paypal.eightfold.ai/careers?query=software%20engineer&location=India
+  url: "https://paypal.eightfold.ai/careers?query={query}&location=India"

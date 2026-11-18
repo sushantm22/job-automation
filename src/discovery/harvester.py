@@ -159,6 +159,25 @@ def probe_company_board(platform: str, slug: str, timeout: float = 10.0) -> dict
                 result["job_count"] = len(jobs)
                 result["status"] = "active"
 
+        elif clean_platform == "smartrecruiters":
+            # The API returns 200 + totalFound=0 for unknown identifiers, so only a company with
+            # postings counts as verified. "empty" (not "not_found") keeps validate-companies from
+            # pruning a real company that has no openings right now.
+            from .smartrecruiters import fetch_smartrecruiters_page
+
+            data = fetch_smartrecruiters_page(clean_slug, limit=1, country=None, timeout=timeout)
+            total = int(data.get("totalFound") or 0)
+            if total > 0:
+                result["valid"] = True
+                result["job_count"] = total
+                result["status"] = "active"
+                company = ((data.get("content") or [{}])[0].get("company") or {}).get("name")
+                if company:
+                    result["name"] = company
+            else:
+                result["status"] = "empty"
+                result["error"] = "No postings (unknown identifier or no open roles)"
+
         else:
             result["error"] = f"Unsupported platform for direct probing: {platform}"
             result["status"] = "unsupported"

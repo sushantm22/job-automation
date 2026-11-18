@@ -121,7 +121,8 @@ def test_tier1_rotates_through_registry_across_runs(tmp_path: Path):
             raise RuntimeError("board down")
         return []
 
-    with patch("src.discovery.engine.fetch_greenhouse_jobs", side_effect=fake_fetch):
+    with patch.object(engine.registry, "ensure_seeded", return_value=0), \
+         patch("src.discovery.engine.fetch_greenhouse_jobs", side_effect=fake_fetch):
         for _ in range(3):
             engine.run_tier1_direct_apis(company_limit=2)
 

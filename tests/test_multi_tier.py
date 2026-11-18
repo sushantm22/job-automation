@@ -124,7 +124,7 @@ def test_engine_orchestration_and_deduplication(tmp_path):
     job_dup = JobRecord(
         source="greenhouse",
         company="Stripe",
-        title="Software Engineer",
+        title="Python Software Engineer",
         location="Remote",
         url="https://boards.greenhouse.io/stripe/jobs/1",
         description="Python backend",
@@ -140,7 +140,7 @@ def test_engine_orchestration_and_deduplication(tmp_path):
     job_t3 = JobRecord(
         source="apify:naukri",
         company="Naukri Corp",
-        title="Lead Engineer",
+        title="Python Lead Engineer",
         location="Pune",
         url="https://www.naukri.com/job-3",
         description="Python & Django",
@@ -148,7 +148,7 @@ def test_engine_orchestration_and_deduplication(tmp_path):
     job_t4 = JobRecord(
         source="firecrawl:google",
         company="Google",
-        title="Staff Engineer",
+        title="Staff Python Engineer",
         location="Bengaluru",
         url="https://careers.google.com/job-4",
         description="Go & Python",
@@ -181,6 +181,7 @@ def test_engine_auto_harvesting(tmp_path):
         tier2_jobspy=True,
         tier3_apify=False,
         tier4_firecrawl=False,
+        search_keywords=["python"],
     )
 
     engine = JobDiscoveryEngine(settings=settings, db_path=db_file)

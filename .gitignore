@@ -38,3 +38,8 @@ dist/
 manasvee_rathie_resume.pdf
 data/resume*.pdf
 data/candidate_answers_reference.json
+data/profile.json
+config.local.yaml
+data/onboarding_state.json
+data/resume*.*
+*.jobhive-cache.json
