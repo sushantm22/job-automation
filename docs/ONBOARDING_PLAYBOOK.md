@@ -121,8 +121,14 @@ How titles are matched (tell the user in one short paragraph, it avoids surprise
 | Finance Manager | Financial Analyst, FP&A Manager, Accounts Manager |
 | Operations Manager | Program Manager, Supply Chain Manager, Project Manager |
 | Customer Success Manager | Account Manager, Relationship Manager, Client Partner |
+| Category Manager | Category Lead, Category Head, Category Buyer, Merchandising Manager, Buying Manager, Category Marketing Manager |
 
-Each role adds about 3 job-board searches per run, so **3 to 8 roles** is a good range. The **first
+For category roles, job sites also return **procurement** "category manager" jobs (sourcing of
+indirect spend, data-center procurement). They match the title rules; if the user means retail or
+e-commerce category management, mention this so they know what those rows are.
+
+Each role adds one LinkedIn search (paced, up to 10 pages) and one search on the other boards,
+so **3 to 8 roles** is a good range. The **first
 role** is also the search term on the big-company career sites (Google, Amazon, Microsoft and
 others, used only if a Firecrawl key is added), so put the user's main title first.
 
@@ -193,23 +199,32 @@ the user approves once and the first results reach Notion before the slow part s
 
 `PY -m src.cli discover --tiers 1 && PY -m src.cli discover --tiers 2`
 
-- Part 1 (tier 1): company job boards and the JobHive dataset, a few minutes.
-- Part 2 (tier 2): LinkedIn, Indeed, Glassdoor and Naukri via JobSpy, the slow part (often 5–10
-  minutes) because it scrapes the sites one after another.
+- Part 1 (tier 1): company job boards and the JobHive dataset (16 company ATS sources such as
+  Workday, Oracle, SuccessFactors, Phenom, Amazon, Greenhouse and Zoho Recruit; India rows only).
+  A few minutes; about 100 MB is read on the first run of the day, nothing when the data is unchanged.
+- Part 2 (tier 2): LinkedIn, Indeed, Naukri and Glassdoor. The **first** search for a set of roles
+  looks back `search.max_job_age_days` (30 days) and asks each site for up to 100 jobs per role.
+  LinkedIn is paced (a pause between roles, and a one-minute wait if it rate-limits us), so this
+  part often takes 5–10 minutes. **Later runs only look back to the previous run** and are much
+  faster. Changing the roles starts a full 30-day search again.
 
 (Use plain `discover` to also include Apify and Firecrawl if those keys were added.) Use background
 runs or long timeouts as described in rule 11, and report part 1's results as soon as its table
 appears in the output. Progress lines show it is moving: `[Tier 1] Checking N company job boards...`,
-`[Tier 1] 50/207 boards checked...`, `[JobHive] workday (1/6)...`, `[Tier 2] Searching job sites for
-'<role>' (1/4)...` and `[Notion Sync] Sending N jobs to Notion...`.
+`[Tier 1] 50/207 boards checked...`, `[JobHive] workday: N India rows of M (... MB). (3/16)`,
+`[Tier 2] LinkedIn: '<role>' in India (1/4)...`, `[Tier 2] LinkedIn rate-limited ...; waiting 60s`
+and `[Notion Sync] Sending N jobs to Notion...`.
 
 **Freshness rules (explain these to the user after the first run):**
-- Jobs posted more than `search.max_job_age_days` ago (default 30) are skipped, and stored jobs
-  are closed once they pass that age.
+- Job boards: jobs posted more than `search.max_job_age_days` ago (default 30) are skipped.
+  Company career sites (JobHive sources, the direct company boards): `search.max_company_job_age_days`
+  (default 60), because a job still listed on a company's own site is still open. Stored jobs are
+  closed once they pass their limit.
 - Workday and most SuccessFactors jobs have **no posting date**. The first run records what is
-  currently listed as a baseline **without adding it**, so the first run shows few or no Workday
-  jobs. From the next daily update on, only jobs that newly appear are added (at most about a day
-  old). Users who prefer the full undated backlog can set `search.undated_jobs: include`.
+  currently listed as a baseline **without adding it**. The summary says how many of the user's
+  *matching* jobs were held back this way ("held back N matching Workday/SuccessFactors jobs").
+  From the next daily update on, only jobs that newly appear are added (at most about a day old).
+  Users who prefer the full undated backlog can set `search.undated_jobs: include`.
 
 Afterwards:
 - Summarize the results table: jobs fetched, how many matched, how many were new, and how many were
@@ -218,6 +233,11 @@ Afterwards:
   new rows (`notion.max_sync_per_run` in `config.yaml`). Tell the user, then run
   `PY -m src.cli sync-notion` (pushes all of them; allow a long timeout or run it in the background,
   since Notion accepts about 3 rows per second).
+- **If the output lists "Close titles found"** (titles the job sites returned for the user's
+  searches that don't match a role yet, with counts, e.g. "Category Lead (6), Category Buyer (3)"):
+  show them and ask which to add. Then save the current roles plus the chosen ones with
+  `onboard set-search --roles "..."` (it replaces the list) and run the search again. The new roles
+  get a full 30-day search.
 - Run `PY -m src.cli list` and show a sample of the matches as a table in chat (company, title,
   location). JobHive jobs have no posting date, and Oracle-hosted employers may show internal codes
   (e.g. "Hcbt") instead of company names.

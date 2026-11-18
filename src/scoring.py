@@ -86,7 +86,11 @@ _HEAD_NOUNS = {
     "associate", "analyst", "specialist", "consultant", "coordinator", "representative", "engineer",
 }
 _HEAD_QUALIFIERS = {"assistant", "deputy", "associate", "general"}
-_REORDER_SPLIT_RE = re.compile(r"\s[-–—]\s|[,|:(]|\s+of\s+")
+# Separators between title segments: spaced dashes, punctuation, brackets and " of ".
+_SEGMENT_SPLIT_RE = re.compile(r"\s[-–—]+\s|[,|:;()\[\]]|\s+of\s+")
+# An unspaced hyphen right after a head noun also separates ("Manager-Sales"); elsewhere it is part
+# of a word ("E-Commerce", "Walk-in"), see _split_head_hyphens.
+_HEAD_HYPHEN_RE = re.compile(r"\b([^\W\d_]+)-(?=[^\W\d_])")
 # "Sales & Marketing Manager" also means "Sales Manager" and "Marketing Manager". Both sides need 2+
 # letters, so FP&A, L&D, R&D, P&L and M&A stay intact.
 _JOINER_RE = re.compile(r"\b([^\W\d_]{2,})\s*[&/]\s*([^\W\d_]{2,})\b")
@@ -113,19 +117,30 @@ def _words(text: str) -> list[str]:
     return [w for w in words if w not in _SENIORITY_WORDS and w != "of"]
 
 
-@lru_cache(maxsize=16384)
+def _split_head_hyphens(text: str) -> str:
+    """ "manager-product category" -> "manager - product category" (only after a head noun)."""
+    def spaced(match: re.Match[str]) -> str:
+        expanded = _ABBREVIATIONS.get(match.group(1), match.group(1)).split()
+        return f"{match.group(1)} - " if expanded and expanded[-1] in _HEAD_NOUNS else match.group(0)
+
+    return _HEAD_HYPHEN_RE.sub(spaced, text)
+
+
+@lru_cache(maxsize=65536)
 def _title_forms(text: str) -> tuple[str, ...]:
     """All normalized readings of a title or role, as space-padded phrases (for whole-word matching)."""
     forms: set[str] = set()
-    for variant in _expand_joiners(text.lower()):
+    for variant in _expand_joiners(_split_head_hyphens(text.lower())):
         words = _words(variant)
         if words:
             forms.add(" ".join(words))
-        parts = _REORDER_SPLIT_RE.split(variant, maxsplit=1)
-        if len(parts) == 2:
-            head, rest = _words(parts[0]), _words(parts[1])
+        # Reordered readings: wherever a segment is only a head noun (optionally qualified), read it
+        # after the next segment ("Manager - Sales" -> "sales manager", "VP - Head of Category" ->
+        # "category head"). The next segment ends at the next separator or bracket.
+        segments = [w for w in (_words(seg) for seg in _SEGMENT_SPLIT_RE.split(variant)) if w]
+        for head, rest in zip(segments, segments[1:]):
             nouns = [w for w in head if w in _HEAD_NOUNS]
-            if rest and nouns and all(w in _HEAD_NOUNS or w in _HEAD_QUALIFIERS for w in head):
+            if nouns and all(w in _HEAD_NOUNS or w in _HEAD_QUALIFIERS for w in head):
                 forms.add(" ".join(rest + nouns))
                 forms.add(" ".join(rest + head))
     return tuple(f" {form} " for form in forms)
@@ -142,6 +157,45 @@ def _matches_role_forms(title: str, role_forms: set[str]) -> bool:
 def title_matches_roles(title: str, roles: list[str]) -> bool:
     """True when the job title names one of the user's roles (see the normalizer rules above)."""
     return _matches_role_forms(title, _role_forms(roles))
+
+
+# Words that say nothing about a job's field ("manager", "senior", "of", ...).
+_GENERIC_WORDS = _HEAD_NOUNS | _HEAD_QUALIFIERS | _SENIORITY_WORDS | {
+    "of", "and", "the", "for", "in", "at", "to", "with", "on", "ii", "iii", "iv",
+}
+
+
+def related_title_candidates(
+    titles: list[str], roles: list[str], exclude: list[str] | None = None, limit: int = 10
+) -> list[tuple[str, int]]:
+    """
+    Close titles worth suggesting as extra roles: titles the job sites returned for the user's
+    searches that don't match a role yet but share a field word with one ("Category Lead" for
+    "Category Manager"). Ranked by how many roles share their words, then by how often they
+    appeared. Returns [(title, count)].
+    """
+    weights: dict[str, int] = {}
+    for role in roles:
+        for word in set(_words(role)):
+            if len(word) >= 3 and word not in _GENERIC_WORDS:
+                weights[word] = weights.get(word, 0) + 1
+    if not weights:
+        return []
+    forms = _role_forms(roles)
+    exclude_regex = _exclude_regex(exclude or [])
+    groups: dict[str, list[Any]] = {}
+    for title in titles:
+        text = " ".join(str(title or "").split())
+        if not text or (exclude_regex and exclude_regex.search(text)) or _matches_role_forms(text, forms):
+            continue
+        words = _words(text)
+        score = sum(weights.get(w, 0) for w in set(words))
+        if not score:
+            continue
+        group = groups.setdefault(" ".join(words), [text, 0, score])
+        group[1] += 1
+    ranked = sorted(groups.values(), key=lambda g: (-g[2], -g[1], g[0].lower()))
+    return [(text, count) for text, count, _ in ranked[:limit]]
 
 
 def hard_filter_jobs(

@@ -1,8 +1,9 @@
 """
 Job freshness: posting-date parsing and the rules for keeping job lists recent.
 
-- Jobs with a known posting date older than `max_job_age_days` are dropped at discovery and,
-  once stored, closed as they age past it.
+- Jobs with a known posting date older than the age limit are dropped at discovery and, once
+  stored, closed as they age past it. The limit is `max_job_age_days` for job boards and
+  `max_company_job_age_days` for company career sites (see is_company_source).
 - Jobs without a posting date from bulk sources (the JobHive dataset, live SuccessFactors) use
   "first seen" tracking: the first read of a source/company is recorded as a baseline and not
   added; afterwards only listings that newly appear are added, so they are at most a run old.
@@ -45,6 +46,24 @@ def is_too_old(value: Any, max_days: int, now: datetime | None = None) -> bool:
         return False
     age = age_in_days(value, now)
     return age is not None and age > max_days
+
+
+# Sources read straight from a company's own career site or ATS. Their data is a snapshot of OPEN
+# listings, so a job that is still listed is still open even if it was posted weeks ago; these get
+# the longer `max_company_job_age_days`. Job boards (LinkedIn, Naukri, ...) use `max_job_age_days`.
+_COMPANY_SITE_SOURCES = {"greenhouse", "lever", "ashby", "smartrecruiters", "keka", "successfactors"}
+
+
+def is_company_source(source: str) -> bool:
+    s = (source or "").strip().lower()
+    return s.startswith(("jobhive:", "firecrawl:")) or s in _COMPANY_SITE_SOURCES
+
+
+def max_age_for(source: str, board_days: int, company_days: int | None = None) -> int:
+    """Age limit in days for a job from `source` (company_days None: same limit for all)."""
+    if company_days is not None and is_company_source(source):
+        return company_days
+    return board_days
 
 
 def uses_first_seen(source: str) -> bool:

@@ -5,7 +5,8 @@ search:
   locations: ["India", "Remote", "Bengaluru", "Bangalore", "Hyderabad", "Pune", "Mumbai", "Gurgaon", "Gurugram", "Noida", "Delhi", "Chennai"]
   exclude_keywords: ["intern", "unpaid"]
   min_match_score: 70
-  max_job_age_days: 30       # Drop/close jobs whose posting date is older than this (0 = no limit)
+  max_job_age_days: 30       # Job boards (LinkedIn, Naukri, ...): drop/close jobs posted longer ago (0 = no limit)
+  max_company_job_age_days: 60  # Company career sites/ATS data: listings there are still open, so a longer limit
   undated_jobs: first_seen   # Jobs without a posting date (Workday, SuccessFactors): first_seen | include
 limits:
   max_applications_per_day: 15
@@ -31,9 +32,14 @@ discovery:
   apify_actor_id: "valig/naukri-jobs-scraper"
   firecrawl_api_key: ""     # Configured in .env as FIRECRAWL_API_KEY
   firecrawl_daily_budget: 10  # Max portals per discovery run (1 credit each on free tier)
-  jobhive:                    # Free public dataset of ATS jobs (Workday, Oracle, ...); part of Tier 1
+  jobspy:                     # Tier 2 job boards
+    sites: [linkedin, indeed, naukri, glassdoor]
+    results_per_search: 100   # per site, per role (LinkedIn returns 10 per page)
+    linkedin_pause_seconds: 15  # LinkedIn blocks rapid bursts (HTTP 429); this paces the searches
+  jobhive:                    # Free public dataset of company ATS jobs (storage.stapply.ai/jobs/v1); part of Tier 1
     enabled: true
-    platforms: [workday, oracle, successfactors, icims, darwinbox, keka]
+    platforms: [workday, oracle, successfactors, icims, darwinbox, keka, smartrecruiters, phenom,
+                greenhouse, lever, ashby, workable, zoho_recruit, amazon, eightfold, jibe]
 
 notion:
   enabled: true

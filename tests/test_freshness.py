@@ -132,7 +132,7 @@ def test_prune_old_command_closes_and_updates_notion(tmp_path: Path, monkeypatch
         result = CliRunner().invoke(app, ["prune-old"])
 
     assert result.exit_code == 0, result.output
-    assert "Marked 1 jobs older than 30 days" in result.output
+    assert "Marked 1 jobs past the age limit (30 days for job boards, 60 for company career sites" in result.output
     assert notion.call_args.kwargs["db_path"] == db
 
 

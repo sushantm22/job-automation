@@ -12,6 +12,15 @@ ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config.yaml"
 DEFAULT_DATABASE_PATH = ROOT / "data" / "jobs.db"
 
+# Kept in sync with src/discovery/jobhive.py DEFAULT_PLATFORMS (a test checks it); not imported
+# from there because src.discovery imports this module.
+DEFAULT_JOBHIVE_PLATFORMS = (
+    "workday", "oracle", "successfactors", "icims", "darwinbox", "keka",
+    "smartrecruiters", "phenom", "greenhouse", "lever", "ashby", "workable", "zoho_recruit",
+    "amazon", "eightfold", "jibe",
+)
+DEFAULT_JOBSPY_SITES = ("linkedin", "indeed", "naukri", "glassdoor")
+
 
 def load_env_file() -> None:
     """Loads the project .env into os.environ without overriding variables already set."""
@@ -50,7 +59,9 @@ class Settings(BaseSettings):
     locations: list[str] = Field(default_factory=lambda: ["Remote", "Bengaluru"])
     exclude_keywords: list[str] = Field(default_factory=lambda: ["intern", "unpaid", "10+ years"])
     min_match_score: int = 70
-    max_job_age_days: int = 30
+    max_job_age_days: int = 30  # job boards (LinkedIn, Naukri, ...)
+    # Company career sites/ATS data are snapshots of OPEN jobs, so they get a longer limit.
+    max_company_job_age_days: int = 60
     undated_jobs: str = "first_seen"
     max_applications_per_day: int = 15
     min_delay_seconds: int = 2
@@ -70,8 +81,11 @@ class Settings(BaseSettings):
     firecrawl_api_key: str = Field(default="", validation_alias=AliasChoices("FIRECRAWL_API_KEY", "firecrawl_api_key"))
     enterprise_portals: list[dict[str, str]] = Field(default_factory=list)
     firecrawl_daily_budget: int = 10
+    jobspy_results_per_search: int = 100  # results per site per role search (LinkedIn: 10 per page)
+    jobspy_sites: list[str] = Field(default_factory=lambda: list(DEFAULT_JOBSPY_SITES))
+    jobspy_linkedin_pause_seconds: float = 15.0  # pause between LinkedIn searches (it rate-limits bursts)
     jobhive_enabled: bool = True
-    jobhive_platforms: list[str] = Field(default_factory=lambda: ["workday", "oracle", "successfactors", "icims", "darwinbox", "keka"])
+    jobhive_platforms: list[str] = Field(default_factory=lambda: list(DEFAULT_JOBHIVE_PLATFORMS))
     database_path: Path = Field(default=DEFAULT_DATABASE_PATH, validation_alias=AliasChoices("DATABASE_PATH", "database_path"))
     notion_enabled: bool = True
     notion_api_token: str = Field(default="", validation_alias=AliasChoices("NOTION_API_KEY", "notion_api_token"))
@@ -126,6 +140,7 @@ def load_settings(config_path: Path = CONFIG_PATH) -> Settings:
         "exclude_keywords": search_cfg.get("exclude_keywords", ["intern", "unpaid", "10+ years"]),
         "min_match_score": search_cfg.get("min_match_score", 70),
         "max_job_age_days": search_cfg.get("max_job_age_days", 30),
+        "max_company_job_age_days": search_cfg.get("max_company_job_age_days", 60),
         "undated_jobs": search_cfg.get("undated_jobs", "first_seen"),
         "max_applications_per_day": limits_cfg.get("max_applications_per_day", 15),
         "min_delay_seconds": limits_cfg.get("min_delay_seconds", 2),
@@ -146,9 +161,10 @@ def load_settings(config_path: Path = CONFIG_PATH) -> Settings:
         "enterprise_portals": discovery_cfg.get("enterprise_portals", []),
         "firecrawl_daily_budget": discovery_cfg.get("firecrawl_daily_budget", 10),
         "jobhive_enabled": (discovery_cfg.get("jobhive") or {}).get("enabled", True),
-        "jobhive_platforms": (discovery_cfg.get("jobhive") or {}).get(
-            "platforms", ["workday", "oracle", "successfactors", "icims", "darwinbox", "keka"]
-        ),
+        "jobhive_platforms": (discovery_cfg.get("jobhive") or {}).get("platforms", list(DEFAULT_JOBHIVE_PLATFORMS)),
+        "jobspy_results_per_search": (discovery_cfg.get("jobspy") or {}).get("results_per_search", 100),
+        "jobspy_sites": (discovery_cfg.get("jobspy") or {}).get("sites", list(DEFAULT_JOBSPY_SITES)),
+        "jobspy_linkedin_pause_seconds": (discovery_cfg.get("jobspy") or {}).get("linkedin_pause_seconds", 15),
         "notion_enabled": raw.get("notion", {}).get("enabled", True),
         "notion_api_token": raw.get("notion", {}).get("api_token", ""),
         "notion_database_id": raw.get("notion", {}).get("database_id", ""),
