@@ -235,16 +235,20 @@ def admit_first_seen(scope_urls: dict[str, set[str]], db_path: Path = DB_PATH) -
         connection.close()
 
 
-def close_stale_jobs(max_days: int, db_path: Path = DB_PATH, first_seen: bool = True) -> int:
+def close_stale_jobs(
+    max_days: int, db_path: Path = DB_PATH, first_seen: bool = True, company_max_days: int | None = None
+) -> int:
     """
-    Closes open jobs (reason 'too_old') that are past the age limit: a known posting date older
-    than max_days, or, for first-seen sources, first seen more than max_days ago or never admitted
-    as new (stored before first-seen tracking: old backlog). With first_seen=False (undated_jobs:
-    include), undated jobs are never closed for age. Returns the number closed.
+    Closes open jobs (reason 'too_old') that are past their age limit: a known posting date older
+    than the limit, or, for first-seen sources, first seen longer ago or never admitted as new
+    (stored before first-seen tracking: old backlog). The limit is max_days for job boards and
+    company_max_days (when given) for company career sites. A limit of 0 means no limit. With
+    first_seen=False (undated_jobs: include), undated jobs are never closed for age.
+    Returns the number closed.
     """
-    from .discovery.freshness import is_too_old, uses_first_seen
+    from .discovery.freshness import is_too_old, max_age_for, uses_first_seen
 
-    if not max_days or max_days <= 0:
+    if (not max_days or max_days <= 0) and (not company_max_days or company_max_days <= 0):
         return 0
     now = datetime.now(timezone.utc)
     connection = get_connection(db_path)
@@ -258,11 +262,14 @@ def close_stale_jobs(max_days: int, db_path: Path = DB_PATH, first_seen: bool = 
         ).fetchall()
         stale = []
         for r in rows:
-            if r["posted_at"]:
-                old = is_too_old(r["posted_at"], max_days, now)
+            limit = max_age_for(r["source"] or "", max_days, company_max_days)
+            if not limit or limit <= 0:
+                old = False
+            elif r["posted_at"]:
+                old = is_too_old(r["posted_at"], limit, now)
             elif first_seen and uses_first_seen(r["source"] or ""):
                 seen_on = admitted.get(r["url"])  # not `first_seen`: that name is the on/off parameter
-                old = seen_on is None or is_too_old(seen_on, max_days, now)
+                old = seen_on is None or is_too_old(seen_on, limit, now)
             else:
                 old = False
             if old:
@@ -436,8 +443,10 @@ def reset_db(db_path: Path = DB_PATH) -> dict[str, int]:
         connection.commit()
         connection.execute("VACUUM")
         connection.commit()
-        # The JobHive cache marks dataset files as "already processed"; after a reset they aren't.
+        # The JobHive cache marks dataset files as "already processed", and the job-board state
+        # narrows later searches to "since the last run"; after a reset neither applies.
         Path(f"{db_path}.jobhive-cache.json").unlink(missing_ok=True)
+        Path(f"{db_path}.jobspy-state.json").unlink(missing_ok=True)
         return {"jobs_deleted": jobs_count, "applications_deleted": apps_count}
     finally:
         connection.close()

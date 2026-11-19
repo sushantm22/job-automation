@@ -19,4 +19,6 @@ Core rules, in short:
 - After each step run `.venv/bin/python -m src.cli onboard status --json` and continue with `next_step`.
 - Secrets go to `.env` via stdin (`printf '%s' '<KEY>' | .venv/bin/python -m src.cli onboard set-key NAME`)
   or the user adds them to `.env` themselves, after which you run `onboard check-keys`. Never echo a key or print `.env`.
-- Run `discover` in the same reply you announce it, with `run_in_background`, and check its output about once a minute (tier 2 scrapes several job sites and can take 5–10 minutes). Use the playbook's single command `discover --tiers 1 && discover --tiers 2`.
+- Run `discover` in the same reply you announce it, with `run_in_background`, then wait for the completion notification instead of polling (it can take ~10 minutes). Use the playbook's single command `discover --tiers 1 && discover --tiers 2`.
+- Always ask for the Notion page link in this chat (AskUserQuestion or a plain question); never reuse a link from an earlier conversation.
+- If `discover` prints "Close titles found", show the whole numbered list and ask which to add; never choose for the user.

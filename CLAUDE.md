@@ -18,13 +18,14 @@ When the user wants to get started, set up, "use this repo", or find jobs, follo
 - **Combine commands with `&&` and skip exploratory commands**: the user may have to approve every call.
 - **Secrets are piped, never typed:** `printf '%s' "$KEY" | .venv/bin/python -m src.cli onboard set-key NAME`, or the user edits `.env` and you run `onboard check-keys`.
 - **Never write `.env`, `config.local.yaml` or `data/profile.json` by hand or with placeholder values.** Only the `onboard` commands write them, with values the user gave you.
+- **Always ask for the Notion page link in this chat** and wait for the reply; never reuse a page link from an earlier conversation, memory or terminal history.
 
 ---
 
 ## 4-Tier Discovery Architecture
 
-1. **Tier 1 (Direct ATS APIs):** Direct JSON endpoints for Greenhouse, Lever, Ashby and SmartRecruiters across 150+ companies in `src/discovery/companies.yaml` (new entries are added to each user's registry automatically). **100% Free, instant (<200ms), zero API keys.** Tier 1 also reads the free **JobHive** dataset (Workday, Oracle, SuccessFactors, iCIMS, Darwinbox, Keka; India rows only, column-level HTTP range reads, cached by Last-Modified), since Workday blocks direct non-browser access. Jobs that disappear from a complete daily snapshot are marked **closed** (DB `closed_at`; Notion New/Reviewing → Closed, never overwriting Applied/Interview). **Keka and SuccessFactors** are scraped live via the `ats-scrapers` package (core install only, never its `[scrapers]`/`[all]` extras, which add browser-impersonation tools).
-2. **Tier 2 (JobSpy Aggregator):** Scrapes 4 sources (LinkedIn, Indeed, Glassdoor, Naukri) for India & Remote. **100% Free, zero API keys.**
+1. **Tier 1 (Direct ATS APIs):** Direct JSON endpoints for Greenhouse, Lever, Ashby and SmartRecruiters across 150+ companies in `src/discovery/companies.yaml` (new entries are added to each user's registry automatically). **100% Free, instant (<200ms), zero API keys.** Tier 1 also reads the free **JobHive** dataset (`storage.stapply.ai/jobs/v1`, 16 ATS sources: Workday, Oracle, SuccessFactors, iCIMS, Darwinbox, Keka, Phenom, Amazon, Eightfold, Zoho Recruit, company-wide Greenhouse/Lever/Ashby/SmartRecruiters and more; India rows by `country_iso` or place name, column-level HTTP range reads with retries, cached by Last-Modified), since Workday blocks direct non-browser access. Jobs that disappear from a complete daily snapshot are marked **closed** (DB `closed_at`; Notion New/Reviewing → Closed, never overwriting Applied/Interview). **Keka and SuccessFactors** are scraped live via the `ats-scrapers` package (core install only, never its `[scrapers]`/`[all]` extras, which add browser-impersonation tools).
+2. **Tier 2 (JobSpy Aggregator):** Scrapes 4 sources (LinkedIn, Indeed, Glassdoor, Naukri) for India & Remote: one India search per role, up to 100 results per site (`discovery.jobspy`). The first search for a set of roles looks back `search.max_job_age_days`; later runs only look back to the last completed run (`{db}.jobspy-state.json`). LinkedIn runs paced and waits a minute on HTTP 429 (no proxies or evasion). **100% Free, zero API keys.**
 3. **Tier 3 (Apify Naukri Anti-Bot):** Cloud residential proxy actor (`valig/naukri-jobs-scraper`). **Smart Fallback:** Only fires if Tier 2 (JobSpy) returned 0 Naukri results, conserving free credits. Optional `APIFY_API_TOKEN` in `.env`.
 4. **Tier 4 (Firecrawl Enterprise Portals):** Dynamic client-side SPA crawler for 20 custom portals (Google, Apple, Microsoft, Amazon, Meta, Swiggy, Flipkart, etc.). **Smart Fallback:** Skips companies already found in Tiers 1-2. Enforces `firecrawl_daily_budget: 10` to conserve credits. Optional `FIRECRAWL_API_KEY` in `.env`.
 
@@ -52,7 +53,7 @@ python -m src.cli discover --company-limit 20 # Custom company limit (rotates th
 # Notion Sync & Management
 python -m src.cli init-notion-db --parent-page-id <url>  # Create Notion table; saves NOTION_DATABASE_ID to .env
 python -m src.cli sync-notion        # Push ALL pending jobs to Notion (discover pushes max 200/run)
-python -m src.cli prune-old          # Close jobs past search.max_job_age_days (+ old undated backlog)
+python -m src.cli prune-old          # Close jobs past their age limit (30d job boards / 60d company sites) + old undated backlog
 
 # Security & Database Maintenance
 python -m src.cli verify-secrets     # Audit tracked files for exposed API keys (MUST run before push)
@@ -69,8 +70,8 @@ PYTHONPATH=. .venv/bin/pytest -v     # Run full automated test suite
 
 - `src/discovery/engine.py`: Coordinates all 4 tiers, smart fallbacks, auto-harvesting, and deduplication.
 - `src/discovery/greenhouse.py`, `lever.py`, `ashby.py`, `smartrecruiters.py`: Tier 1 direct ATS API adapters (SmartRecruiters is filtered to India server-side).
-- `src/discovery/jobhive.py`: Tier 1 reader for the public JobHive dataset (no posting dates; third-party free service, failures are skipped; feeds closed-job tracking).
-- `src/discovery/freshness.py`: Age limit (`search.max_job_age_days`, default 30) and first-seen tracking for undated listings (`search.undated_jobs: first_seen|include`, table `seen_listings`).
+- `src/discovery/jobhive.py`: Tier 1 reader for the public JobHive dataset (file URLs from its manifest; Workday has no posting dates; third-party free service: 5xx/timeouts retried, other failures skipped; feeds closed-job tracking).
+- `src/discovery/freshness.py`: Age limits (`search.max_job_age_days`, default 30, for job boards; `search.max_company_job_age_days`, default 60, for company career sites, whose listings are still open) and first-seen tracking for undated listings (`search.undated_jobs: first_seen|include`, table `seen_listings`).
 - `src/discovery/ats_scrapers_adapter.py`: Tier 1 live Keka/SuccessFactors via `ats-scrapers`; refuses any scraper that uses impersonation.
 - `src/discovery/jobspy_adapter.py`: Tier 2 JobSpy adapter (LinkedIn, Indeed, Glassdoor, Naukri; Google Jobs disabled: it requires JavaScript since Jan 2025).
 - `src/discovery/apify_adapter.py`: Tier 3 Apify cloud anti-bot actor for Naukri.
@@ -78,7 +79,7 @@ PYTHONPATH=. .venv/bin/pytest -v     # Run full automated test suite
 - `src/discovery/registry.py`, `harvester.py`: Company board registry (SQLite), auto-harvesting, and `companies.yaml` sync.
 - `src/discovery/companies.yaml`: 140+ ATS company slugs + 20 custom enterprise portals.
 - `src/integrations/notion_client.py`: Notion API database client with table formatting & duplicate guardrails.
-- `src/scoring.py`: Role-agnostic title matching (`title_matches_roles`: whole words, seniority ignored, abbreviations like BDM/KAM/Sr/Mgr, "Manager - Sales" and "Head of Sales" orderings; titles only, never descriptions) and foreign-exclusion geo-filtering (`hard_filter_jobs`).
+- `src/scoring.py`: `related_title_candidates` suggests close titles from the job boards (shown after `discover`). Role-agnostic title matching (`title_matches_roles`: whole words, seniority ignored, abbreviations like BDM/KAM/Sr/Mgr, "Manager - Sales" and "Head of Sales" orderings; titles only, never descriptions) and foreign-exclusion geo-filtering (`hard_filter_jobs`).
 - `src/config.py`: Pydantic settings from `config.yaml`, overridden by `config.local.yaml` (gitignored) and `.env` (`firecrawl_daily_budget: 10`).
 - `src/onboard_steps.py`: Non-interactive onboarding steps behind the `onboard ...` commands.
 - `src/onboarding.py`: Interactive setup wizard, `.env` helpers, and pre-commit secret scanner.

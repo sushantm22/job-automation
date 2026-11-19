@@ -15,6 +15,7 @@ When the user wants to get started, set up, "use this repo", or find jobs, follo
 - **Combine commands with `&&` and skip exploratory commands**: the user may have to approve every call.
 - **Secrets are piped, never typed:** `printf '%s' "$KEY" | .venv/bin/python -m src.cli onboard set-key NAME`, or the user edits `.env` and you run `onboard check-keys`.
 - **Never write `.env`, `config.local.yaml` or `data/profile.json` by hand or with placeholder values.** Only the `onboard` commands write them, with values the user gave you.
+- **Always ask for the Notion page link in this chat** and wait for the reply; never reuse a page link from an earlier conversation, memory or terminal history.
 
 ---
 
@@ -34,8 +35,8 @@ python -m src.cli verify-secrets     # Audit repository for exposed secrets
 ```
 
 ### Architecture Breakdown
-1. **Tier 1 (Direct ATS APIs):** Greenhouse, Lever, Ashby, SmartRecruiters direct JSON polling, plus the free JobHive dataset (Workday, Oracle, SuccessFactors, iCIMS, Darwinbox, Keka) with closed-job tracking, and live Keka/SuccessFactors scraping via `ats-scrapers` (core install only). Free, no API keys.
-2. **Tier 2 (JobSpy Aggregators):** LinkedIn, Indeed, Glassdoor, Naukri without browser overhead. Free, no API keys.
+1. **Tier 1 (Direct ATS APIs):** Greenhouse, Lever, Ashby, SmartRecruiters direct JSON polling, plus the free JobHive dataset (16 company ATS sources: Workday, Oracle, SuccessFactors, Phenom, Amazon, Greenhouse, Zoho Recruit and more) with closed-job tracking, and live Keka/SuccessFactors scraping via `ats-scrapers` (core install only). Free, no API keys.
+2. **Tier 2 (JobSpy Aggregators):** LinkedIn, Indeed, Glassdoor, Naukri without browser overhead: 30 days and up to 100 results per site on the first search, then only since the last run; LinkedIn paced. Free, no API keys.
 3. **Tier 3 (Apify Naukri):** Cloud actor for anti-bot & residential proxy bypass. Fallback only when JobSpy returns 0 Naukri jobs. Optional `APIFY_API_TOKEN`.
 4. **Tier 4 (Firecrawl Enterprise):** Client-side SPA extraction for ~20 enterprise career portals (budget-capped). Optional `FIRECRAWL_API_KEY`.
 5. **Local SQLite Ledger (`data/jobs.db`):** Local deduplication ledger with strict `UNIQUE(url)` constraint.

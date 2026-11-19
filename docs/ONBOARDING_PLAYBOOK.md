@@ -48,10 +48,19 @@ Use it whenever the user says anything like "set me up", "start using this repo"
    next `git pull`, so tell them which files you changed.
 11. **Never end a reply by announcing a command.** If you write "I'm running the job search now", that
    same reply must contain the command. A reply that only announces it leaves the user waiting
-   with nothing running. For commands that take minutes (`discover`, `sync-notion`), start them in
-   the background if your tool allows it (Copilot: run in terminal as a background command; Claude
-   Code: `run_in_background`), then check the output about once a minute and tell the user how far
-   it has got. Otherwise run them in the foreground with a timeout of about 15 minutes.
+   with nothing running. Commands that take minutes (`discover`, `sync-notion`, often ~10 min):
+   tell the user how long it takes, then wait for it **with as few tool calls as possible**:
+   - **GitHub Copilot (VS Code):** run it as a normal terminal command, **not** in the background.
+     The terminal tool then waits until the command finishes and returns all of its output in one
+     step, and the user watches the live output in the terminal panel. Don't use a background
+     command plus repeated `get_terminal_output` checks: each check counts toward Copilot's limit
+     of about 25 tool calls per reply, which stops the run with a "Continue to iterate?" prompt.
+   - **Claude Code:** `run_in_background`, then wait for the completion notification instead of
+     polling.
+   - **Other tools:** run it in the foreground with a timeout of at least 20 minutes. Only if that
+     isn't possible, run it in the background and check every couple of minutes.
+   - **Don't narrate the wait.** Post to the user only when something new happens (a new progress
+     line, a rate-limit wait, the result), never "still running, no errors" messages.
    **While a background command runs, only read its output; never run another command in that
    terminal** (not even `ps`): many tools send Ctrl-C first, which kills the run (exit code 130).
    Both commands print progress lines; a minute without a new line is normal while a large
@@ -121,8 +130,14 @@ How titles are matched (tell the user in one short paragraph, it avoids surprise
 | Finance Manager | Financial Analyst, FP&A Manager, Accounts Manager |
 | Operations Manager | Program Manager, Supply Chain Manager, Project Manager |
 | Customer Success Manager | Account Manager, Relationship Manager, Client Partner |
+| Category Manager | Category Lead, Category Head, Category Buyer, Merchandising Manager, Buying Manager, Category Marketing Manager |
 
-Each role adds about 3 job-board searches per run, so **3 to 8 roles** is a good range. The **first
+For category roles, job sites also return **procurement** "category manager" jobs (sourcing of
+indirect spend, data-center procurement). They match the title rules; if the user means retail or
+e-commerce category management, mention this so they know what those rows are.
+
+Each role adds one LinkedIn search (paced, up to 10 pages) and one search on the other boards,
+so **3 to 8 roles** is a good range. The **first
 role** is also the search term on the big-company career sites (Google, Amazon, Microsoft and
 others, used only if a Firecrawl key is added), so put the user's main title first.
 
@@ -175,10 +190,16 @@ If the user wants no extras: `PY -m src.cli onboard skip api_keys`
   1. In Notion, open or create the page where the job table should live.
   2. Click `•••` (top right) → **Connections** → select the integration they created.
   3. Copy the page link (`•••` → **Copy link**) and paste it here.
+- **Always ask for the page link in this chat and wait for the user's reply.** Never reuse a page
+  link from an earlier conversation, your memory, terminal history or `.env`, even if you have seen
+  one before: the user may want a fresh page, and an old page already has a table with old results.
 - Then run `PY -m src.cli init-notion-db --parent-page-id "<page link>"`
   This creates the table and saves `NOTION_DATABASE_ID` to `.env` automatically. Tell the user the
   table ("Automated Job Applications") now appears directly on the page they shared, and share the
   table URL it prints.
+- **If it says the page "already has a job table from an earlier setup"** (nothing was created),
+  tell the user and ask: share a different, empty page (recommended, keeps old and new results
+  apart), or add another table to the same page (re-run with `--create-new`).
 - If it fails, the command prints Notion's own error message. When it also shows the
   "Connections" tip (404, 401 or 403), the page wasn't shared with the integration, so repeat step 2.
   Any other message (for example a 400 `validation_error`) is a problem in the request, not the user's
@@ -188,28 +209,39 @@ If the user wants no extras: `PY -m src.cli onboard skip api_keys`
 
 ## Step `first_discovery`: First job search
 
-Run the free sources **in this same reply** (rule 11), as one background command in two parts, so
-the user approves once and the first results reach Notion before the slow part starts:
+Tell the user it takes about 10 minutes, then run the free sources **in this same reply** as one
+command in two parts, so the user approves once and the first results reach Notion before the slow
+part starts. Wait for it as rule 11 says (Copilot: a normal, non-background command):
 
 `PY -m src.cli discover --tiers 1 && PY -m src.cli discover --tiers 2`
 
-- Part 1 (tier 1): company job boards and the JobHive dataset, a few minutes.
-- Part 2 (tier 2): LinkedIn, Indeed, Glassdoor and Naukri via JobSpy, the slow part (often 5–10
-  minutes) because it scrapes the sites one after another.
+- Part 1 (tier 1): company job boards and the JobHive dataset (16 company ATS sources such as
+  Workday, Oracle, SuccessFactors, Phenom, Amazon, Greenhouse and Zoho Recruit; India rows only).
+  A few minutes; about 100 MB is read on the first run of the day, nothing when the data is unchanged.
+- Part 2 (tier 2): LinkedIn, Indeed, Naukri and Glassdoor. The **first** search for a set of roles
+  looks back `search.max_job_age_days` (30 days) and asks each site for up to 100 jobs per role.
+  LinkedIn is paced (a pause between roles, and a one-minute wait if it rate-limits us), so this
+  part often takes 5–10 minutes. **Later runs only look back to the previous run** and are much
+  faster. Changing the roles starts a full 30-day search again.
 
 (Use plain `discover` to also include Apify and Firecrawl if those keys were added.) Use background
 runs or long timeouts as described in rule 11, and report part 1's results as soon as its table
 appears in the output. Progress lines show it is moving: `[Tier 1] Checking N company job boards...`,
-`[Tier 1] 50/207 boards checked...`, `[JobHive] workday (1/6)...`, `[Tier 2] Searching job sites for
-'<role>' (1/4)...` and `[Notion Sync] Sending N jobs to Notion...`.
+`[Tier 1] 50/207 boards checked...`, `[JobHive] workday: N India rows of M (... MB). (3/16)`,
+`[Tier 2] LinkedIn: '<role>' in India (1/4)...`, `[Tier 2] LinkedIn rate-limited ...; waiting 60s`
+and `[Notion Sync] Sending N jobs to Notion...`.
 
 **Freshness rules (explain these to the user after the first run):**
-- Jobs posted more than `search.max_job_age_days` ago (default 30) are skipped, and stored jobs
-  are closed once they pass that age.
+- Job boards: jobs posted more than `search.max_job_age_days` ago (default 30) are skipped.
+  Company career sites (JobHive sources, the direct company boards): `search.max_company_job_age_days`
+  (default 60), because a job still listed on a company's own site is still open. Stored jobs are
+  closed once they pass their limit.
 - Workday and most SuccessFactors jobs have **no posting date**. The first run records what is
-  currently listed as a baseline **without adding it**, so the first run shows few or no Workday
-  jobs. From the next daily update on, only jobs that newly appear are added (at most about a day
-  old). Users who prefer the full undated backlog can set `search.undated_jobs: include`.
+  currently listed as a baseline **without adding it**. The summary says how many of the user's
+  *matching* jobs were held back this way ("N matching Workday/SuccessFactors jobs have no posting
+  date, so they were NOT added"). Tell the user plainly that **these are not added later**: from the
+  next daily update on, only jobs that newly appear there are added (at most about a day old).
+  Users who prefer the full undated backlog can set `search.undated_jobs: include`.
 
 Afterwards:
 - Summarize the results table: jobs fetched, how many matched, how many were new, and how many were
@@ -218,6 +250,13 @@ Afterwards:
   new rows (`notion.max_sync_per_run` in `config.yaml`). Tell the user, then run
   `PY -m src.cli sync-notion` (pushes all of them; allow a long timeout or run it in the background,
   since Notion accepts about 3 rows per second).
+- **If the output lists "Close titles found"** (a numbered list of titles the job sites returned for
+  the user's searches that don't match a role yet, with job counts): show **the whole numbered list
+  exactly as printed**, then ask *"Which of these should I add to your roles? Reply with the
+  numbers, or 'none'."* Don't pick a subset, shorten the list or decide for the user, and don't just
+  call them "worth adding". After they answer, save the current roles plus the chosen titles with
+  `onboard set-search --roles "..."` (it replaces the list) and run the search again; the changed
+  role list gets a full 30-day search (about 10 minutes again). If they say "none", carry on.
 - Run `PY -m src.cli list` and show a sample of the matches as a table in chat (company, title,
   location). JobHive jobs have no posting date, and Oracle-hosted employers may show internal codes
   (e.g. "Hcbt") instead of company names.

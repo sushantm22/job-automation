@@ -47,8 +47,8 @@ nothing personal ever gets committed.
 
 | Service / Tier | Required? | Cost | Description |
 | :--- | :---: | :---: | :--- |
-| **Tier 1 (Direct ATS APIs)** | **No** | **100% Free** | Direct JSON endpoints for Greenhouse, Lever, Ashby and SmartRecruiters across 150+ companies, plus live Keka/SuccessFactors career sites and the free JobHive dataset (Workday, Oracle, SuccessFactors, Darwinbox, Keka, iCIMS); jobs that close are marked Closed. **Zero API keys needed!** |
-| **Tier 2 (JobSpy Aggregators)** | **No** | **100% Free** | Scrapes LinkedIn, Indeed, and Glassdoor without browser overhead. **Zero API keys needed!** |
+| **Tier 1 (Direct ATS APIs)** | **No** | **100% Free** | Direct JSON endpoints for Greenhouse, Lever, Ashby and SmartRecruiters across 150+ companies, plus live Keka/SuccessFactors career sites and the free JobHive dataset (16 company ATS sources such as Workday, Oracle, SuccessFactors, Phenom, Amazon); jobs that close are marked Closed. **Zero API keys needed!** |
+| **Tier 2 (JobSpy Aggregators)** | **No** | **100% Free** | Searches LinkedIn, Indeed, Naukri and Glassdoor (30 days on the first search, then only new jobs). **Zero API keys needed!** |
 | **Google Gemini API** | Not used yet | Free Tier | Planned for job-match scoring and resume tailoring. Not needed today. |
 | **Tier 3 (Apify Naukri)** | Optional | Free (\$5/mo) | Solves Cloudflare & residential proxies for Naukri. [Get free token here](https://console.apify.com/account/integrations). |
 | **Tier 4 (Firecrawl)** | Optional | Free (500 credits) | AI crawler for custom JavaScript portals (Google, Apple, Netflix). [Get free key here](https://firecrawl.dev/). |

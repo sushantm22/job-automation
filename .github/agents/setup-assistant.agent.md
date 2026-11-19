@@ -26,8 +26,15 @@ contains the exact commands, what to ask, and how to handle errors.
    are gitignored. Never write them into tracked files, never write them by hand, and never fill in
    placeholder values; only the `onboard` commands write them.
 7. **Never end a reply by announcing a command.** If you say "I'm running the job search now", the
-   same reply must run it. Start `discover` and `sync-notion` (several minutes each) as background
-   terminal commands, then check their output about once a minute and report progress in chat. Never run another command (even `ps`) in the terminal a background command is using: it sends Ctrl-C and kills the run.
+   same reply must run it. `discover` and `sync-notion` take up to ~10 minutes: tell the user, then
+   run them as a **normal (not background) terminal command**. The tool waits for the command to
+   finish and returns all output in one step. Background runs plus repeated `get_terminal_output`
+   checks use up your ~25 tool calls per reply and stop with "Continue to iterate?". Don't post
+   "still running" messages.
+8. **Always ask for the Notion page link in this chat** and wait for the reply. Never reuse a page
+   link from an earlier conversation, your memory or terminal history.
+9. **Close titles:** if `discover` prints "Close titles found", show the whole numbered list and ask
+   which numbers to add as roles. Never choose for the user.
 
 ## After setup
 The user can just ask "find new jobs", "show my jobs" or "change my roles", and you run the matching

@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import math
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
 
@@ -15,7 +21,7 @@ from ..db import (
     reopen_jobs,
     upsert_jobs,
 )
-from .freshness import first_seen_scope, is_too_old, uses_first_seen
+from .freshness import first_seen_scope, is_too_old, max_age_for, uses_first_seen
 from ..utils.net import never_reached_server
 from .apify_adapter import fetch_apify_naukri_jobs
 from .ashby import fetch_ashby_jobs
@@ -31,6 +37,46 @@ from .ats_scrapers_adapter import LIVE_PLATFORMS, fetch_live_ats_jobs
 
 logger = logging.getLogger(__name__)
 PROGRESS_EVERY = 25  # boards between progress lines, so long runs never look stuck
+
+
+JOB_BOARD_SOURCES = {"linkedin", "indeed", "naukri", "glassdoor"}
+
+
+def _job_dict(j: JobRecord) -> dict[str, Any]:
+    return {
+        "source": j.source,
+        "company": j.company,
+        "title": j.title,
+        "location": j.location,
+        "url": j.url,
+        "description": j.description,
+        "posted_at": str(j.posted_at) if j.posted_at else None,
+    }
+
+
+def _same_job_key(j: JobRecord) -> tuple[str, str, str]:
+    return tuple(" ".join(str(v or "").lower().split()) for v in (j.company, j.title, j.location))  # type: ignore[return-value]
+
+
+def drop_dataset_duplicates(jobs: list[JobRecord]) -> list[JobRecord]:
+    """
+    Drops dataset rows that repeat a job our direct board reader found on the same ATS this run,
+    e.g. `jobhive:lever` vs `lever` with the same company, title and location (their URLs can
+    differ slightly). The live board's copy is kept. Different ATSs are never compared.
+    """
+    live = {(j.source, _same_job_key(j)) for j in jobs if not j.source.startswith("jobhive:")}
+    if not live:
+        return jobs
+    return [
+        j for j in jobs
+        if not (j.source.startswith("jobhive:") and (j.source.split(":", 1)[1], _same_job_key(j)) in live)
+    ]
+
+
+def _describe_hours(hours: int | None) -> str:
+    if hours is None:
+        return "any time"
+    return f"{hours // 24} days" if hours >= 48 and hours % 24 == 0 else f"{hours} hours"
 
 
 def _count_unsynced(db_path) -> int:
@@ -60,6 +106,7 @@ class JobDiscoveryEngine:
         self.registry_seeded = 0
         self.network_unavailable = False
         self.jobhive_snapshots: dict[str, dict[str, Any]] = {}
+        self.jobspy_window: dict[str, int | None] = {}  # last tier 2 search window (hours)
 
     def run_tier1_direct_apis(self, company_limit: int | None = 50) -> list[JobRecord]:
         """
@@ -127,16 +174,16 @@ class JobDiscoveryEngine:
 
     def run_tier1_jobhive(self) -> list[JobRecord]:
         """Tier 1 (dataset): India jobs from the public JobHive dataset (Workday, Oracle, ...)."""
-        import hashlib
-        import json
-        from pathlib import Path
-
         s = self.settings
         # Cache stamps are only valid for the same search settings and database.
         cache_key = hashlib.sha1(json.dumps(
-            [s.search_keywords, s.locations, s.exclude_keywords, str(self.db_path)], sort_keys=True
+            [s.search_keywords, s.locations, s.exclude_keywords, str(self.db_path), s.max_job_age_days,
+             s.max_company_job_age_days, s.undated_jobs, sorted(s.jobhive_platforms or [])], sort_keys=True
         ).encode()).hexdigest()
-        logger.info("[Tier 1: JobHive] Reading the daily dataset (Workday, Oracle, SuccessFactors, ...)...")
+        logger.info(
+            f"[Tier 1: JobHive] Reading the daily dataset ({len(s.jobhive_platforms or [])} sources: "
+            "Workday, Oracle, SuccessFactors, Phenom, ...)..."
+        )
         try:
             jobs = fetch_jobhive_jobs(
                 platforms=s.jobhive_platforms,
@@ -150,27 +197,93 @@ class JobDiscoveryEngine:
         logger.info(f"[Tier 1: JobHive] Total fetched: {len(jobs)} India jobs")
         return jobs
 
+    # --- Tier 2 search windows -----------------------------------------------------------------
+    # The first search for a set of roles looks back `max_job_age_days`. Later searches only need
+    # the jobs posted since the last *completed* search (plus a day of overlap), which is much
+    # lighter on LinkedIn's rate limit. LinkedIn and the other boards are tracked separately, so a
+    # rate-limited LinkedIn search is repeated over the whole gap next time.
+
+    def _jobspy_state_path(self) -> Path:
+        return Path(f"{self.db_path}.jobspy-state.json")
+
+    def _jobspy_state_key(self, keywords: list[str], locations: list[str]) -> str:
+        s = self.settings
+        return hashlib.sha1(json.dumps(
+            [sorted(k.strip().lower() for k in keywords), sorted(l.strip().lower() for l in locations),
+             sorted(s.jobspy_sites or []), s.max_job_age_days], sort_keys=True,
+        ).encode()).hexdigest()
+
+    def _window_hours(self, last_completed: str | None, now: datetime) -> int | None:
+        max_days = self.settings.max_job_age_days
+        max_hours = max_days * 24 if max_days and max_days > 0 else None
+        try:
+            last = datetime.fromisoformat(last_completed) if last_completed else None
+        except ValueError:
+            last = None
+        if last is None:
+            return max_hours
+        hours = max(24, math.ceil((now - last).total_seconds() / 3600) + 24)
+        return min(hours, max_hours) if max_hours else hours
+
     def run_tier2_jobspy(
         self,
         keywords: list[str] | None = None,
         locations: list[str] | None = None,
-        results_wanted: int = 15,
+        results_wanted: int | None = None,
     ) -> list[JobRecord]:
-        """Tier 2: Multi-aggregator scraping (LinkedIn, Indeed, Glassdoor) for India & Remote."""
-        kw = keywords or self.settings.search_keywords
-        loc = locations or self.settings.locations
+        """Tier 2: job boards (LinkedIn, Indeed, Naukri, Glassdoor) for India & Remote."""
+        s = self.settings
+        kw = keywords or s.search_keywords
+        loc = locations or s.locations
+        path = self._jobspy_state_path()
+        try:
+            state = json.loads(path.read_text(encoding="utf-8"))
+            state = state if isinstance(state, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            state = {}
+        key = self._jobspy_state_key(kw, loc)
+        entry = state.get(key) if isinstance(state.get(key), dict) else {}
+        started = datetime.now(timezone.utc)
+        board_hours = self._window_hours(entry.get("others"), started)
+        linkedin_hours = self._window_hours(entry.get("linkedin"), started)
+        self.jobspy_window = {"others": board_hours, "linkedin": linkedin_hours}
+        logger.info(
+            f"[Tier 2] Searching jobs posted in the last {_describe_hours(board_hours)}"
+            + (f" (LinkedIn: {_describe_hours(linkedin_hours)})" if linkedin_hours != board_hours else "")
+            + "..."
+        )
+        report: dict[str, Any] = {}
         try:
             jobs = fetch_jobspy_jobs(
                 keywords=kw,
                 locations=loc,
-                results_wanted=results_wanted,
+                sites=s.jobspy_sites,
+                results_wanted=results_wanted or s.jobspy_results_per_search,
+                hours_old=board_hours,
+                linkedin_hours_old=linkedin_hours,
                 include_remote=True,
+                linkedin_pause_seconds=s.jobspy_linkedin_pause_seconds,
+                report=report,
             )
-            logger.info(f"[Tier 2: JobSpy] Total fetched: {len(jobs)} jobs")
-            return jobs
         except Exception as err:
             logger.warning(f"[Tier 2: JobSpy] Error executing JobSpy: {err}")
             return []
+        # Advance a site's window only when its search finished and found something.
+        changed = False
+        for site in ("linkedin", "others"):
+            info = report.get(site) or {}
+            if info.get("complete") and info.get("jobs"):
+                entry[site] = started.isoformat()
+                changed = True
+        if changed:
+            state[key] = entry
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+            except OSError as err:
+                logger.warning(f"[Tier 2] Could not save the search window state: {err}")
+        logger.info(f"[Tier 2: JobSpy] Total fetched: {len(jobs)} jobs")
+        return jobs
 
     def run_tier3_apify(
         self,
@@ -211,26 +324,35 @@ class JobDiscoveryEngine:
         )
 
     def _apply_freshness(self, jobs: list[JobRecord]) -> tuple[list[JobRecord], int, int]:
-        """Returns (jobs to keep, skipped as too old, skipped as first-seen baseline)."""
-        max_age = self.settings.max_job_age_days
-        fresh = [j for j in jobs if not is_too_old(j.posted_at, max_age)]
-        too_old = len(jobs) - len(fresh)
-        if self.settings.undated_jobs != "first_seen":
-            return fresh, too_old, 0
+        """
+        Returns (jobs to keep, jobs skipped as too old, jobs skipped as first-seen baseline).
+        Company career-site jobs use the longer `max_company_job_age_days` (still open when listed).
+        """
+        s = self.settings
+        fresh: list[JobRecord] = []
+        too_old: list[JobRecord] = []
+        for j in jobs:
+            limit = max_age_for(j.source, s.max_job_age_days, s.max_company_job_age_days)
+            (too_old if is_too_old(j.posted_at, limit) else fresh).append(j)
+        if s.undated_jobs != "first_seen":
+            return fresh, too_old, []
 
         by_scope: dict[str, set[str]] = {}
         for j in fresh:
             if not j.posted_at and j.url and uses_first_seen(j.source):
                 by_scope.setdefault(first_seen_scope(j.source, j.company), set()).add(j.url)
         admitted = admit_first_seen(by_scope, db_path=self.db_path) if by_scope else set()
-        kept = [j for j in fresh if j.posted_at or not uses_first_seen(j.source) or j.url in admitted]
-        return kept, too_old, len(fresh) - len(kept)
+        kept: list[JobRecord] = []
+        baseline: list[JobRecord] = []
+        for j in fresh:
+            (kept if (j.posted_at or not uses_first_seen(j.source) or j.url in admitted) else baseline).append(j)
+        return kept, too_old, baseline
 
     def execute_all_tiers(
         self,
         selected_tiers: list[int] | None = None,
         company_limit: int | None = 50,
-        results_per_board: int = 15,
+        results_per_board: int | None = None,
         auto_harvest: bool = True,
         apply_hard_filter: bool = True,
     ) -> dict[str, Any]:
@@ -246,6 +368,7 @@ class JobDiscoveryEngine:
             )
         active_tiers = set(selected_tiers or [1, 2, 3, 4])
         self.jobhive_snapshots = {}
+        self.jobspy_window = {}
         all_jobs: list[JobRecord] = []
         tier_counts: dict[str, int] = {
             "tier1_direct_apis": 0,
@@ -288,7 +411,7 @@ class JobDiscoveryEngine:
                     "[Tier 3: Apify] JobSpy returned 0 Naukri results. "
                     "Activating Apify cloud anti-bot fallback."
                 )
-                t3_jobs = self.run_tier3_apify(max_jobs=results_per_board * 2)
+                t3_jobs = self.run_tier3_apify(max_jobs=(results_per_board or 10) * 2)  # paid credits: keep small
                 tier_counts["tier3_apify"] = len(t3_jobs)
                 all_jobs.extend(t3_jobs)
 
@@ -303,41 +426,47 @@ class JobDiscoveryEngine:
         # 5. Automated Feedback Loop (Auto-Harvesting)
         harvested_count = 0
         if auto_harvest:
-            # Collect URLs from all jobs discovered in aggregator tiers (Tiers 2, 3, 4)
+            # Collect URLs from all jobs discovered in aggregator tiers (Tiers 2, 3, 4). Dataset rows
+            # (jobhive:*) are left out: the dataset already covers those companies every day, and
+            # probing thousands of their boards would take a very long time.
             aggregator_urls = [
-                j.url for j in all_jobs if not j.source.startswith(("greenhouse", "lever", "ashby"))
+                j.url for j in all_jobs if not j.source.startswith(("greenhouse", "lever", "ashby", "jobhive:"))
             ]
             if aggregator_urls:
                 harvested_count = self.registry.harvest_from_urls(aggregator_urls)
 
-        # 6. Freshness: drop jobs past the age limit; undated bulk listings only when newly seen.
-        fresh_jobs, too_old_skipped, baseline_skipped = self._apply_freshness(all_jobs)
+        seen_urls = {j.url for j in all_jobs if j.url}  # open right now (for closed-job tracking)
+        candidates = drop_dataset_duplicates(all_jobs)
 
-        # 7. Deduplication & Persistence in SQLite
-        raw_dicts = [
-            {
-                "source": j.source,
-                "company": j.company,
-                "title": j.title,
-                "location": j.location,
-                "url": j.url,
-                "description": j.description,
-                "posted_at": str(j.posted_at) if j.posted_at else None,
-            }
-            for j in fresh_jobs
-            if j.url
-        ]
-
-        if apply_hard_filter and raw_dicts:
-            from ..scoring import hard_filter_jobs
-            target_dicts = hard_filter_jobs(
-                raw_dicts,
-                keywords=self.settings.search_keywords,
-                locations=self.settings.locations,
-                exclude=self.settings.exclude_keywords,
+        # 6. Role & location filter. It runs on everything before freshness so the freshness
+        #    report can say how many of the user's *matching* jobs were held back.
+        s = self.settings
+        if apply_hard_filter:
+            from ..scoring import hard_filter_jobs, related_title_candidates
+            matched = hard_filter_jobs(
+                [_job_dict(j) for j in candidates if j.url],
+                keywords=s.search_keywords,
+                locations=s.locations,
+                exclude=s.exclude_keywords,
+            )
+            matched_urls = {d["url"] for d in matched}
+            # Close titles from the job boards (searched with the user's roles), to suggest as roles.
+            related_titles = related_title_candidates(
+                [j.title for j in candidates if j.source in JOB_BOARD_SOURCES and j.url not in matched_urls],
+                s.search_keywords, exclude=s.exclude_keywords,
             )
         else:
-            target_dicts = raw_dicts
+            matched_urls = {j.url for j in candidates if j.url}
+            related_titles = []
+
+        # 7. Freshness: drop jobs past their age limit; undated bulk listings only when newly seen
+        #    (the first-seen baseline records every listing, matching or not).
+        fresh_jobs, too_old_jobs, baseline_jobs = self._apply_freshness(candidates)
+        too_old_matching = sum(1 for j in too_old_jobs if j.url in matched_urls)
+        baseline_by_source = Counter(j.source for j in baseline_jobs if j.url in matched_urls)
+
+        # 8. Deduplication & Persistence in SQLite
+        target_dicts = [_job_dict(j) for j in fresh_jobs if j.url and j.url in matched_urls]
 
         # Count existing before insertion to calculate true duplicates prevented
         conn = get_connection(self.db_path)
@@ -359,7 +488,6 @@ class JobDiscoveryEngine:
 
         # Closed-job tracking (JobHive platforms, e.g. Workday). Anything seen this run, by any
         # source, is open; jobs missing from a complete daily snapshot are marked closed.
-        seen_urls = {j.url for j in all_jobs if j.url}
         jobs_reopened = reopen_jobs(seen_urls, db_path=self.db_path)
         jobs_closed = 0
         for platform, snap in self.jobhive_snapshots.items():
@@ -370,8 +498,9 @@ class JobDiscoveryEngine:
         if jobs_closed or jobs_reopened:
             logger.info(f"[Closed jobs] {jobs_closed} marked closed, {jobs_reopened} reopened.")
         stale_closed = close_stale_jobs(
-            self.settings.max_job_age_days, db_path=self.db_path,
-            first_seen=self.settings.undated_jobs == "first_seen",
+            s.max_job_age_days, db_path=self.db_path,
+            first_seen=s.undated_jobs == "first_seen",
+            company_max_days=s.max_company_job_age_days,
         )
 
         # 7. Optional Automatic Notion Database Sync
@@ -404,8 +533,13 @@ class JobDiscoveryEngine:
             "notion_pending": notion_pending,
             "jobs_closed": jobs_closed,
             "stale_closed": stale_closed,
-            "too_old_skipped": too_old_skipped,
-            "baseline_skipped": baseline_skipped,
+            "too_old_skipped": len(too_old_jobs),
+            "baseline_skipped": len(baseline_jobs),
+            "too_old_matching": too_old_matching,
+            "baseline_matching": sum(baseline_by_source.values()),
+            "baseline_matching_by_source": dict(baseline_by_source),
+            "related_titles": related_titles,
+            "jobspy_window_hours": dict(self.jobspy_window),
             "jobs_reopened": jobs_reopened,
             "jobs": all_jobs,
         }

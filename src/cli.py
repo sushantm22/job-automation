@@ -56,7 +56,9 @@ def init() -> None:
 @app.command()
 def discover(
     tiers: str = typer.Option("all", help="Tiers to execute: 'all', or comma-separated numbers '1,2,3,4'"),
-    results_per_board: int = typer.Option(10, help="Number of results wanted per board for aggregators"),
+    results_per_board: int = typer.Option(
+        0, help="Job-board results per site per role search (0 = discovery.jobspy.results_per_search in config.yaml)"
+    ),
     company_limit: int = typer.Option(50, help="Max companies to query per run for Tier 1 (0 for all registered)"),
     auto_harvest: bool = typer.Option(True, help="Automatically harvest new company ATS slugs from incoming job URLs"),
 ) -> None:
@@ -100,7 +102,7 @@ def discover(
     result = engine.execute_all_tiers(
         selected_tiers=selected_tiers,
         company_limit=company_limit if company_limit > 0 else None,
-        results_per_board=results_per_board,
+        results_per_board=results_per_board if results_per_board > 0 else None,
         auto_harvest=auto_harvest,
     )
 
@@ -112,7 +114,7 @@ def discover(
 
     tier_map = {
         "tier1_direct_apis": ("Tier 1", "Direct APIs (Greenhouse / Lever / Ashby / SmartRecruiters)"),
-        "tier1_jobhive": ("Tier 1", "JobHive dataset (Workday / Oracle / SuccessFactors / iCIMS / Darwinbox / Keka)"),
+        "tier1_jobhive": ("Tier 1", f"JobHive dataset ({len(settings.jobhive_platforms or [])} ATS sources: Workday / Oracle / SuccessFactors / Phenom / ...)"),
         "tier2_jobspy": ("Tier 2", "JobSpy (LinkedIn / Indeed / Glassdoor / Naukri)"),
         "tier3_apify": ("Tier 3", "Apify (Naukri & Protected Aggregators)"),
         "tier4_firecrawl": ("Tier 4", "Firecrawl (Google / Apple / Enterprise Portals)"),
@@ -143,11 +145,48 @@ def discover(
     if result.get("registry_seeded", 0) > 0:
         console.print(f"🌱 [bold green]First run:[/bold green] loaded {result['registry_seeded']} company boards from companies.yaml into your registry.")
 
-    if result.get("too_old_skipped", 0) or result.get("baseline_skipped", 0):
+    window = result.get("jobspy_window_hours") or {}
+    if window:
+        from .discovery.engine import _describe_hours
+
+        line = f"🔎 [bold]Job boards:[/bold] searched jobs posted in the last {_describe_hours(window.get('others'))}"
+        if window.get("linkedin") != window.get("others"):
+            line += f" (LinkedIn: {_describe_hours(window.get('linkedin'))})"
+        console.print(line + ". Later runs only look back to the previous run.")
+
+    too_old_matching = result.get("too_old_matching", 0)
+    baseline_matching = result.get("baseline_matching", 0)
+    if too_old_matching or baseline_matching:
+        parts = []
+        if too_old_matching:
+            parts.append(
+                f"skipped {too_old_matching} matching jobs past the age limit ({settings.max_job_age_days} days "
+                f"for job boards, {settings.max_company_job_age_days} for company career sites)"
+            )
+        if baseline_matching:
+            pretty = {"workday": "Workday", "successfactors": "SuccessFactors"}
+            names = sorted({pretty.get(src.split(":")[-1], src.split(":")[-1].title())
+                            for src in (result.get("baseline_matching_by_source") or {})})
+            parts.append(
+                f"{baseline_matching} matching {'/'.join(names)} jobs have no posting date, so they were NOT added "
+                "(they may be months old) and will not be added later; from the next daily update, only jobs that "
+                "newly appear there are added (to add undated jobs too, set search.undated_jobs: include)"
+            )
+        console.print("🧹 [bold]Freshness:[/bold] " + "; ".join(parts) + ".")
+
+    related = result.get("related_titles") or []
+    if related:
+        from rich.markup import escape
+
         console.print(
-            f"🧹 [bold]Freshness:[/bold] skipped {result.get('too_old_skipped', 0)} jobs posted more than "
-            f"{settings.max_job_age_days} days ago and {result.get('baseline_skipped', 0)} undated older listings "
-            "(Workday/SuccessFactors: only jobs that newly appear are added)."
+            f"💡 [bold]Close titles found[/bold] ({len(related)}): titles the job sites returned that aren't in your "
+            "roles yet. Show ALL of them to the user and ask which numbers to add:"
+        )
+        for number, (title, count) in enumerate(related, 1):
+            console.print(f"   {number}. {escape(title)} ({count} jobs)")  # titles may contain "[...]"
+        console.print(
+            "   To add some, save the current roles plus the chosen titles: "
+            "[bold cyan]python -m src.cli onboard set-search --roles \"<current roles>, <chosen titles>\"[/bold cyan]"
         )
     if result.get("stale_closed", 0):
         console.print(f"🗓  [bold]{result['stale_closed']} stored jobs[/bold] passed the age limit and were marked closed.")
@@ -360,9 +399,28 @@ def list() -> None:
 def init_notion_db(
     parent_page_id: str = typer.Option(..., help="Notion Parent Page URL or 32-character Page ID"),
     title: str = typer.Option("Automated Job Applications", help="Title of the Notion database table"),
+    create_new: bool = typer.Option(
+        False, "--create-new", help="Add a table even if this page already has one from an earlier setup"
+    ),
 ) -> None:
     """Creates a structured tabular Jobs Database inside a Notion page using the Notion API."""
-    from .integrations.notion_client import create_notion_job_database, clean_notion_id
+    from .integrations.notion_client import clean_notion_id, create_notion_job_database, find_job_tables
+
+    if not create_new:
+        try:
+            existing = find_job_tables(parent_page_id)
+        except Exception:
+            existing = []  # can't check (network/permissions): creating will report any real problem
+        if existing:
+            typer.echo("⚠️  This Notion page already has a job table from an earlier setup, so nothing was created:")
+            for table in existing:
+                typer.echo(f"  • {table['title']}: {table['url']}")
+            typer.echo(
+                "Ask the user (in chat) which page to use: a new page keeps these results apart from older ones. "
+                "Never reuse a page link from an earlier conversation without asking. "
+                "To add another table to this same page anyway, run again with --create-new."
+            )
+            raise typer.Exit(code=2)
 
     typer.echo(f"Creating Notion Database under page: {parent_page_id}...")
     try:
@@ -391,7 +449,7 @@ def init_notion_db(
 
 @app.command("prune-old")
 def prune_old(
-    max_age_days: int = typer.Option(None, help="Override search.max_job_age_days for this run"),
+    max_age_days: int = typer.Option(None, help="Override search.max_job_age_days (job boards) for this run"),
 ) -> None:
     """Close stored jobs past the age limit (and old undated backlog); update their Notion rows."""
     from . import db as db_module
@@ -401,8 +459,14 @@ def prune_old(
     days = max_age_days if max_age_days is not None else settings.max_job_age_days
     db_path = db_module.DB_PATH
     db_module.init_db(db_path)
-    closed = db_module.close_stale_jobs(days, db_path=db_path, first_seen=settings.undated_jobs == "first_seen")
-    typer.echo(f"Marked {closed} jobs older than {days} days (or old undated backlog) as closed.")
+    company_days = settings.max_company_job_age_days
+    closed = db_module.close_stale_jobs(
+        days, db_path=db_path, first_seen=settings.undated_jobs == "first_seen", company_max_days=company_days
+    )
+    typer.echo(
+        f"Marked {closed} jobs past the age limit ({days} days for job boards, {company_days} for company "
+        "career sites, or old undated backlog) as closed."
+    )
     if settings.notion_enabled and settings.notion_database_id:
         res = sync_closed_status(db_path=db_path)
         typer.echo(
