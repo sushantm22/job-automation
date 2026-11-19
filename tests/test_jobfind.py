@@ -381,5 +381,7 @@ def test_discover_summary_shows_matching_freshness_and_close_titles_safely():
     out = " ".join(result.output.split())
     assert result.exit_code == 0, result.output
     assert "searched jobs posted in the last 30 days" in out
-    assert "held back 15 matching SuccessFactors/Workday jobs" in out
-    assert "Category Lead [Remote] (6), Category Buyer (3)" in out  # "[...]" is not eaten as markup
+    assert "15 matching SuccessFactors/Workday jobs have no posting date, so they were NOT added" in out
+    assert "will not be added later" in out
+    assert "1. Category Lead [Remote] (6 jobs) 2. Category Buyer (3 jobs)" in out  # numbered; "[...]" kept
+    assert "Show ALL of them" in out

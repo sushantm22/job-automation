@@ -14,6 +14,7 @@ When the user wants to get started, set up, "use this repo", or find jobs, follo
 - **Combine commands with `&&` and skip exploratory commands**: the user may have to approve every call.
 - **Secrets are piped, never typed:** `printf '%s' "$KEY" | .venv/bin/python -m src.cli onboard set-key NAME`, or the user edits `.env` and you run `onboard check-keys`.
 - **Never write `.env`, `config.local.yaml` or `data/profile.json` by hand or with placeholder values.** Only the `onboard` commands write them, with values the user gave you.
+- **Always ask for the Notion page link in this chat** and wait for the reply; never reuse a page link from an earlier conversation, memory or terminal history.
 
 ## Essential Commands
 - **Onboarding:** `python -m src.cli onboard status --json` (agents follow the playbook; never run the interactive `setup`)

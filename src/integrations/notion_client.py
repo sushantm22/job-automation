@@ -88,6 +88,39 @@ def clean_notion_id(raw_id: str) -> str:
     return cleaned
 
 
+JOB_TABLE_TITLES = {"automated job applications", "job opportunities"}  # titles this project creates
+
+
+def find_job_tables(parent_page_id: str, api_token: str | None = None, timeout: float = 20.0) -> list[dict[str, str]]:
+    """
+    Job tables this project created earlier directly on the page: [{"id", "title", "url"}].
+    Lets `init-notion-db` notice a page that is already set up instead of adding a second table.
+    """
+    token = (api_token or load_settings().notion_api_token).strip()
+    page_id = clean_notion_id(parent_page_id)
+    if not token or not page_id:
+        return []
+    tables: list[dict[str, str]] = []
+    cursor = None
+    for _ in range(5):  # at most 500 blocks
+        query = f"?page_size=100{f'&start_cursor={cursor}' if cursor else ''}"
+        req = request.Request(
+            f"{NOTION_BASE_URL}/blocks/{page_id}/children{query}", headers=get_notion_headers(token), method="GET"
+        )
+        data = _send_json(req, timeout)
+        for block in data.get("results") or []:
+            if block.get("type") != "child_database" or block.get("archived") or block.get("in_trash"):
+                continue
+            title = str((block.get("child_database") or {}).get("title") or "")
+            if title.strip().lower() in JOB_TABLE_TITLES:
+                table_id = clean_notion_id(block.get("id", ""))
+                tables.append({"id": table_id, "title": title, "url": f"https://www.notion.so/{table_id}"})
+        if not data.get("has_more"):
+            break
+        cursor = data.get("next_cursor")
+    return tables
+
+
 def create_notion_job_database(
     parent_page_id: str,
     title: str = "Automated Job Applications",

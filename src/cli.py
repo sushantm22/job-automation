@@ -168,8 +168,9 @@ def discover(
             names = sorted({pretty.get(src.split(":")[-1], src.split(":")[-1].title())
                             for src in (result.get("baseline_matching_by_source") or {})})
             parts.append(
-                f"held back {baseline_matching} matching {'/'.join(names)} jobs that have no posting date "
-                "(this first read is the starting point; jobs that newly appear there are added from the next daily update)"
+                f"{baseline_matching} matching {'/'.join(names)} jobs have no posting date, so they were NOT added "
+                "(they may be months old) and will not be added later; from the next daily update, only jobs that "
+                "newly appear there are added (to add undated jobs too, set search.undated_jobs: include)"
             )
         console.print("🧹 [bold]Freshness:[/bold] " + "; ".join(parts) + ".")
 
@@ -177,11 +178,15 @@ def discover(
     if related:
         from rich.markup import escape
 
-        shown = escape(", ".join(f"{title} ({count})" for title, count in related))  # titles may contain "[...]"
         console.print(
-            f"💡 [bold]Close titles found[/bold] that aren't in your roles yet: {shown}.\n"
-            "   To include some, save your roles plus the ones you want: "
-            "[bold cyan]python -m src.cli onboard set-search --roles \"<current roles>, <new titles>\"[/bold cyan]"
+            f"💡 [bold]Close titles found[/bold] ({len(related)}): titles the job sites returned that aren't in your "
+            "roles yet. Show ALL of them to the user and ask which numbers to add:"
+        )
+        for number, (title, count) in enumerate(related, 1):
+            console.print(f"   {number}. {escape(title)} ({count} jobs)")  # titles may contain "[...]"
+        console.print(
+            "   To add some, save the current roles plus the chosen titles: "
+            "[bold cyan]python -m src.cli onboard set-search --roles \"<current roles>, <chosen titles>\"[/bold cyan]"
         )
     if result.get("stale_closed", 0):
         console.print(f"🗓  [bold]{result['stale_closed']} stored jobs[/bold] passed the age limit and were marked closed.")
@@ -394,9 +399,28 @@ def list() -> None:
 def init_notion_db(
     parent_page_id: str = typer.Option(..., help="Notion Parent Page URL or 32-character Page ID"),
     title: str = typer.Option("Automated Job Applications", help="Title of the Notion database table"),
+    create_new: bool = typer.Option(
+        False, "--create-new", help="Add a table even if this page already has one from an earlier setup"
+    ),
 ) -> None:
     """Creates a structured tabular Jobs Database inside a Notion page using the Notion API."""
-    from .integrations.notion_client import create_notion_job_database, clean_notion_id
+    from .integrations.notion_client import clean_notion_id, create_notion_job_database, find_job_tables
+
+    if not create_new:
+        try:
+            existing = find_job_tables(parent_page_id)
+        except Exception:
+            existing = []  # can't check (network/permissions): creating will report any real problem
+        if existing:
+            typer.echo("⚠️  This Notion page already has a job table from an earlier setup, so nothing was created:")
+            for table in existing:
+                typer.echo(f"  • {table['title']}: {table['url']}")
+            typer.echo(
+                "Ask the user (in chat) which page to use: a new page keeps these results apart from older ones. "
+                "Never reuse a page link from an earlier conversation without asking. "
+                "To add another table to this same page anyway, run again with --create-new."
+            )
+            raise typer.Exit(code=2)
 
     typer.echo(f"Creating Notion Database under page: {parent_page_id}...")
     try:

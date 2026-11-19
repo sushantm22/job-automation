@@ -36,6 +36,8 @@ When the user wants to get started, set up, "use this repo", or find jobs, follo
 ## Common User Guidance
 - In agent mode, set the project up for the user by following `docs/ONBOARDING_PLAYBOOK.md`: run the commands yourself and ask questions in chat.
 - When users ask to find jobs, run `python -m src.cli discover --tiers 1,2` and show the matches (`python -m src.cli list`).
-- Never end a reply by announcing a command ("I'm starting the search now") without running it in that same reply. `discover` and `sync-notion` take several minutes: run them as background terminal commands and check the output about once a minute, reporting progress in chat. Never run another command (even `ps`) in the terminal a background command is using: it sends Ctrl-C and kills the run.
+- Never end a reply by announcing a command ("I'm starting the search now") without running it in that same reply. `discover` and `sync-notion` take up to ~10 minutes: tell the user, then run them as a **normal terminal command, not a background one** (set isBackground=false). The tool then waits until the command finishes and returns all output in one step. Don't run them in the background and poll `get_terminal_output`: every check uses one of your ~25 tool calls per reply and stops the run with "Continue to iterate?". Don't post "still running" messages.
+- **Always ask for the Notion page link in this chat** and wait for the reply; never reuse a link from an earlier conversation, memory or terminal history.
+- After `discover`, if it prints "Close titles found", show the **whole numbered list** and ask which numbers to add as roles; never pick for the user.
 - In chat-only mode (no terminal access), give one command at a time and ask the user to paste the output back.
 - Never suggest committing `.env`, `data/jobs.db`, or writing plaintext tokens to `config.yaml`.
