@@ -43,3 +43,4 @@ config.local.yaml
 data/onboarding_state.json
 data/resume*.*
 *.jobhive-cache.json
+*.jobspy-state.json
